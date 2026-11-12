@@ -18,7 +18,6 @@ export function validateScene(scene: Scene): CheckReport {
 
   if (scene.bodies.length === 0) push('missing_required', 'bodies', '场景为空：请添加一个物体，或使用 AI 建模');
   if (scene.bodies.length > 1) push('unsupported_combo', 'bodies', '首版仅支持单物体；连接体将在后续模块开放');
-  if (scene.supports.length > 2) push('unsupported_combo', 'supports', '首版至多支持一个地面与一个斜面');
   if (scene.gravity === null) push('missing_required', 'gravity', '缺少重力加速度 g（可填 9.8 或 10）');
   else if (scene.gravity <= 0) push('constraint_conflict', 'gravity', 'g 必须为正数');
 
@@ -74,5 +73,5 @@ export function validateScene(scene: Scene): CheckReport {
 export const SUPPORTED_TYPES = [
   { id: 'kinematics-1d', label: '匀变速直线运动（含水平面摩擦）' },
   { id: 'projectile', label: '平抛与斜抛' },
-  { id: 'incline-friction', label: '单物体斜面与摩擦（运动截至端点）' },
+  { id: 'incline-friction', label: '单物体斜面与摩擦（可连接水平面/斜面形成连续轨道，运动截至外端点）' },
 ];

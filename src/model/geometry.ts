@@ -40,3 +40,22 @@ export function projectToSupport(s: Support, p: Vec2): number {
   const raw = (p.x - s.a.x) * d.x + (p.y - s.a.y) * d.y;
   return Math.min(supportLength(s), Math.max(0, raw));
 }
+
+export function distanceToSupport(s: Support, p: Vec2): number {
+  const along = projectToSupport(s, p);
+  const q = pointOnSupport(s, along);
+  return Math.hypot(p.x - q.x, p.y - q.y);
+}
+
+export function nearestSupport(supports: Support[], p: Vec2, maxDistance = Infinity): Support | null {
+  let best: Support | null = null;
+  let bestDistance = maxDistance;
+  for (const support of supports) {
+    const distance = distanceToSupport(support, p);
+    if (distance <= bestDistance) {
+      best = support;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}

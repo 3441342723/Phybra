@@ -2,20 +2,22 @@ import { EPS, positiveRoots, quadraticRoots, type StageEval } from './common';
 
 export type Phase = { a: number; label: string; note?: string; static?: boolean };
 
-export type TrackEvent = { kind: 'rest' | 'end_of_support'; t: number; s: number; label: string };
+export type TrackEvent = { kind: 'rest' | 'end_of_support' | 'junction'; t: number; s: number; label: string };
 
 /**
  * 沿支撑面的一维多段运动：每段匀变速，段间由"速度归零"或"到达端点"切换。
- * 到达端点即终止（首版约定：斜面运动截至端点）。
+ * 到达轨道外端点即终止；内部连接点只切换支撑面，不截断运动。
  */
 export function runTrack(opts: {
   s0: number;
   u0: number;
   length: number;
+  junctions?: number[];
   decide: (state: { s: number; u: number }) => Phase;
   window: number;
 }): { stages: StageEval[]; tEnd: number; terminated: boolean; events: TrackEvent[] } {
   const { s0, u0, length: L, decide, window } = opts;
+  const junctions = opts.junctions ?? [];
   const stages: StageEval[] = [];
   const events: TrackEvent[] = [];
   let t = 0;
@@ -23,16 +25,16 @@ export function runTrack(opts: {
   let u = u0;
   let terminated = false;
 
-  for (let iter = 0; iter < 6 && t < window - EPS; iter++) {
+  for (let iter = 0; iter < 64 && t < window - EPS; iter++) {
     const phase = decide({ s, u });
     const a = phase.static ? 0 : phase.a;
-    const candidates: Array<{ dt: number; kind: 'rest' | 'end'; end?: 0 | 1 }> = [];
+    const candidates: Array<{ dt: number; kind: 'rest' | 'end'; target?: number }> = [];
 
     if (!phase.static) {
       if (Math.abs(a) > EPS && Math.abs(u) > EPS && -u / a > EPS) candidates.push({ dt: -u / a, kind: 'rest' });
-      for (const target of [0, L] as const) {
+      for (const target of [0, ...junctions, L]) {
         const roots = positiveRoots(quadraticRoots(0.5 * a, u, s - target));
-        if (roots.length) candidates.push({ dt: roots[0], kind: 'end', end: target === 0 ? 0 : 1 });
+        if (roots.length) candidates.push({ dt: roots[0], kind: 'end', target });
       }
     }
     candidates.sort((p, q) => p.dt - q.dt);
@@ -50,10 +52,14 @@ export function runTrack(opts: {
 
     if (hit && Math.abs(hit.dt - dur) < EPS) {
       if (hit.kind === 'end') {
-        s = hit.end === 0 ? 0 : L;
-        terminated = true;
-        events.push({ kind: 'end_of_support', t, s, label: hit.end === 0 ? '到达 a 端（低端）' : '到达 b 端（高端）' });
-        break;
+        s = hit.target!;
+        if (s <= EPS || s >= L - EPS) {
+          terminated = true;
+          events.push({ kind: 'end_of_support', t, s, label: s <= EPS ? '到达轨道起点端' : '到达轨道终点端' });
+          break;
+        }
+        events.push({ kind: 'junction', t, s, label: '经过支撑面连接点' });
+        continue;
       }
       events.push({ kind: 'rest', t, s, label: '速度为零' });
       u = 0;

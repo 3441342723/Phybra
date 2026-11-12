@@ -10,7 +10,7 @@ import { NumericField } from './NumericField';
 const ASK_KINDS: AskKind[] = ['at_time', 'at_position', 'at_velocity', 'at_height', 'landing', 'apex', 'rest', 'end_of_support', 'friction_state'];
 const ASK_TARGET: Partial<Record<AskKind, { key: 't' | 'x' | 'y' | 'v'; label: string; unit: 'time' | 'length' | 'speed' }>> = {
   at_time: { key: 't', label: '时刻', unit: 'time' },
-  at_position: { key: 'x', label: '位置（斜面为沿面 s）', unit: 'length' },
+  at_position: { key: 'x', label: '位置（斜面/连续轨道为沿轨 s）', unit: 'length' },
   at_velocity: { key: 'v', label: '速度（沿面 u）', unit: 'speed' },
   at_height: { key: 'y', label: '高度', unit: 'length' },
 };

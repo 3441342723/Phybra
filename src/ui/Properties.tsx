@@ -1,6 +1,7 @@
 import type { Num, UnitKind } from '../model/types';
 import { supportDir, supportLength } from '../model/geometry';
 import { setAt } from '../model/paths';
+import { makeContact } from '../model/factory';
 import { SUPPORTED_TYPES } from '../model/validate';
 import { fieldValue, withBinding } from '../state/editing';
 import type { FieldEdit } from '../state/editing';
@@ -77,11 +78,13 @@ export function Properties({ store, dispatch, fields }: { store: Store; dispatch
                 <select
                   value={body.attach!.support}
                   onChange={(e) => {
-                    let next = setAt(scene, `bodies.${body.id}.attach.support`, e.target.value);
-                    next = {
-                      ...next,
-                      contacts: next.contacts.map((c) => (c.body === body.id ? { ...c, support: e.target.value } : c)),
-                    };
+                    const supportId = e.target.value;
+                    const target = scene.supports.find((s) => s.id === supportId)!;
+                    let next = setAt(scene, `bodies.${body.id}.attach.support`, supportId);
+                    next = setAt(next, `bodies.${body.id}.attach.s`, Math.min(body.attach!.s ?? 0, supportLength(target)));
+                    if (!next.contacts.some((c) => c.body === body.id && c.support === supportId)) {
+                      next = { ...next, contacts: [...next.contacts, makeContact(body.id, supportId, 0.4, 0.3)] };
+                    }
                     dispatch({ type: 'apply', scene: next });
                   }}
                 >
@@ -131,7 +134,7 @@ export function Properties({ store, dispatch, fields }: { store: Store; dispatch
           <h3>{sup.name}</h3>
           {num('a 端 x', `supports.${sup.id}.a.x`, 'length')}
           {num('a 端 y', `supports.${sup.id}.a.y`, 'length')}
-          {num('长度 L', `supports.${sup.id}.length`, 'length', 0.2, 100, 0.1, '物体到达端点即停止（首版约定）')}
+          {num('长度 L', `supports.${sup.id}.length`, 'length', 0.2, 100, 0.1, '端点与其他支撑面重合时自动连接；物体到达整条轨道的外端点才停止')}
           {sup.kind === 'incline'
             ? num('倾角 θ', `supports.${sup.id}.angleDeg`, 'angle', -80, 80, 1, 'a→b 方向与水平线夹角')
             : <div className="hint">水平面倾角固定为 0°</div>}

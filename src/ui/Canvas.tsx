@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Body, Scene, Solution, Support, Vec2 } from '../model/types';
-import { bodyWorld, projectToSupport, supportDir, supportEnd, supportLength } from '../model/geometry';
+import { bodyWorld, nearestSupport, projectToSupport, supportDir, supportEnd, supportLength } from '../model/geometry';
 import { makeAsk, makeBlock, makeContact, makeProjectile, makeSupport } from '../model/factory';
-import { setAt } from '../model/paths';
+import { withField } from '../state/editing';
 import { snapPoint, snapValue } from '../model/snap';
 import type { Action, Camera, Store } from '../state/store';
 
@@ -102,19 +102,23 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
       next = { ...next, bodies: [...next.bodies, b] };
       created = b.id;
     } else if (store.tool === 'horizontal' || store.tool === 'incline') {
-      const sup = makeSupport(store.tool === 'incline' ? 'incline' : 'horizontal', { x: Number(world.x.toFixed(2)), y: Number(world.y.toFixed(2)) }, 5, store.tool === 'incline' ? 30 : 0);
-      next = { ...next, supports: [...next.supports, sup] };
+      const kind = store.tool === 'incline' ? 'incline' : 'horizontal';
+      const sup = makeSupport(kind, { x: Number(world.x.toFixed(2)), y: Number(world.y.toFixed(2)) }, 5, kind === 'incline' ? 30 : 0);
+      sup.name = `${kind === 'incline' ? '斜面' : '水平面'} ${next.supports.length + 1}`;
+      const contacts = next.bodies.filter((b) => b.kind === 'block').map((b) => makeContact(b.id, sup.id, 0.4, 0.3));
+      next = { ...next, supports: [...next.supports, sup], contacts: [...next.contacts, ...contacts] };
       created = sup.id;
     } else if (store.tool === 'block') {
-      let sup = next.supports[0];
+      let sup = nearestSupport(next.supports, world, 1.5);
       if (!sup) {
         sup = makeSupport('horizontal', { x: world.x - 5, y: world.y }, 10, 0);
-        next = { ...next, supports: [sup] };
+        sup.name = `水平面 ${next.supports.length + 1}`;
+        next = { ...next, supports: [...next.supports, sup] };
       }
       const s = snapValue(projectToSupport(sup, world), store.snap);
       const block = makeBlock(sup.id, s);
-      const contact = makeContact(block.id, sup.id, 0.4, 0.3);
-      next = { ...next, bodies: [...next.bodies, block], contacts: [...next.contacts, contact] };
+      const contacts = next.supports.map((support) => makeContact(block.id, support.id, 0.4, 0.3));
+      next = { ...next, bodies: [...next.bodies, block], contacts: [...next.contacts, ...contacts] };
       if (next.asks.length === 0) next = { ...next, asks: [makeAsk(sup.kind === 'incline' ? 'end_of_support' : 'at_time', sup.kind === 'incline' ? {} : { t: 2 })] };
       created = block.id;
     }
@@ -170,23 +174,38 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
     if (d.kind === 'body') {
       const body = scene.bodies.find((b) => b.id === d.id)!;
       if (body.attach) {
-        const sup = scene.supports.find((s) => s.id === body.attach!.support)!;
-        next = setAt(next, `bodies.${d.id}.attach.s`, snapValue(projectToSupport(sup, world), store.snap));
+        const current = scene.supports.find((s) => s.id === body.attach!.support)!;
+        const sup = nearestSupport(scene.supports, world, 1.5) ?? current;
+        const s = snapValue(projectToSupport(sup, world), store.snap);
+        if (sup.id !== body.attach.support) {
+          next = withField(next, `bodies.${d.id}.attach.support`, sup.id);
+          if (!next.contacts.some((c) => c.body === d.id && c.support === sup.id)) {
+            next = { ...next, contacts: [...next.contacts, makeContact(d.id, sup.id, 0.4, 0.3)] };
+          }
+        }
+        next = withField(next, `bodies.${d.id}.attach.s`, s);
       } else {
-        next = setAt(next, `bodies.${d.id}.pos`, world);
+        next = withField(next, `bodies.${d.id}.pos`, world);
       }
     } else if (d.kind === 'support') {
-      next = setAt(next, `supports.${d.id}.a`, snapPoint({ x: d.origA.x + world.x - d.start.x, y: d.origA.y + world.y - d.start.y }, store.snap));
+      next = withField(next, `supports.${d.id}.a`, snapPoint({ x: d.origA.x + world.x - d.start.x, y: d.origA.y + world.y - d.start.y }, store.snap));
     } else if (d.kind === 'endpoint') {
       const sup = scene.supports.find((s) => s.id === d.id)!;
       if (d.end === 'a') {
-        next = setAt(next, `supports.${d.id}.a`, world);
+        next = withField(next, `supports.${d.id}.a`, world);
       } else {
         const dx = world.x - sup.a.x;
         const dy = world.y - sup.a.y;
+        const oldLen = supportLength(sup);
         const len = Math.max(0.2, Math.hypot(dx, dy));
-        next = setAt(next, `supports.${d.id}.length`, Number(len.toFixed(3)));
-        if (sup.kind === 'incline') next = setAt(next, `supports.${d.id}.angleDeg`, Number(((Math.atan2(dy, dx) * 180) / Math.PI).toFixed(2)));
+        const newLen = Number(len.toFixed(3));
+        next = withField(next, `supports.${d.id}.length`, newLen);
+        if (sup.kind === 'incline') next = withField(next, `supports.${d.id}.angleDeg`, Number(((Math.atan2(dy, dx) * 180) / Math.PI).toFixed(2)));
+        for (const body of scene.bodies) {
+          if (body.attach?.support !== d.id || body.attach.s === null) continue;
+          if (body.attach.s >= oldLen - 1e-6) next = withField(next, `bodies.${body.id}.attach.s`, newLen);
+          else if (body.attach.s > newLen) next = withField(next, `bodies.${body.id}.attach.s`, newLen);
+        }
       }
     } else if (d.kind === 'velocity') {
       const body = scene.bodies.find((b) => b.id === d.id)!;
@@ -196,9 +215,9 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
         const sup = scene.supports.find((s) => s.id === body.attach!.support)!;
         const dir = supportDir(sup);
         const u = ((p.x - base.x) * dir.x - (p.y - base.y) * dir.y) / VSCALE;
-        next = setAt(next, `bodies.${d.id}.vel`, { x: Number((u * dir.x).toFixed(3)), y: Number((u * dir.y).toFixed(3)) });
+        next = withField(next, `bodies.${d.id}.vel`, { x: Number((u * dir.x).toFixed(3)), y: Number((u * dir.y).toFixed(3)) });
       } else {
-        next = setAt(next, `bodies.${d.id}.vel`, { x: Number(((p.x - base.x) / VSCALE).toFixed(3)), y: Number(((base.y - p.y) / VSCALE).toFixed(3)) });
+        next = withField(next, `bodies.${d.id}.vel`, { x: Number(((p.x - base.x) / VSCALE).toFixed(3)), y: Number(((base.y - p.y) / VSCALE).toFixed(3)) });
       }
     }
     if (next !== scene) edit.transient(next);
@@ -238,6 +257,16 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
 
   const trajectory = solution ? solution.samples.map((st) => w2s({ x: st.x, y: st.y })) : [];
   const moving = solution && (store.playback.t > 0 || store.playback.mode === 'playing') ? solution.evalAt(store.playback.t) : null;
+  const joints: Vec2[] = [];
+  for (let i = 0; i < scene.supports.length; i++) {
+    for (let j = i + 1; j < scene.supports.length; j++) {
+      const endsA = [scene.supports[i].a, supportEnd(scene.supports[i])];
+      const endsB = [scene.supports[j].a, supportEnd(scene.supports[j])];
+      for (const a of endsA) for (const b of endsB) {
+        if (dist(a, b) <= 0.02 && !joints.some((p) => dist(p, a) <= 0.02)) joints.push(a);
+      }
+    }
+  }
 
   return (
     <div className="canvas-wrap" ref={ref}>
@@ -294,6 +323,10 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
               )}
             </g>
           );
+        })}
+        {joints.map((p, i) => {
+          const sp = w2s(p);
+          return <circle key={`joint${i}`} cx={sp.x} cy={sp.y} r={5} className="joint-marker" />;
         })}
         {scene.bodies.map((body: Body) => {
           const p = bodyScreen(body);

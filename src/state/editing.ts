@@ -13,11 +13,19 @@ export function fieldValue(scene: Scene, path: string): any {
 }
 
 export function withField(scene: Scene, path: string, value: unknown): Scene {
+  let next = setAt(scene, path, value);
   const bound = scene.bindings[path];
   if (bound) {
-    return { ...scene, rev: scene.rev + 1, params: scene.params.map((p) => (p.name === bound ? { ...p, value: value as number | null } : p)) };
+    next = { ...next, params: next.params.map((p) => (p.name === bound ? { ...p, value: value as number | null } : p)) };
   }
-  return setAt(scene, path, value);
+  const parts = path.split('.');
+  if (parts[0] === 'params' && parts[2] === 'value') {
+    for (const [fieldPath, paramName] of Object.entries(scene.bindings)) {
+      if (paramName === parts[1]) next = setAt(next, fieldPath, value);
+    }
+  }
+  next.rev = scene.rev + 1;
+  return next;
 }
 
 export function withBinding(scene: Scene, path: string, paramName: string): Scene {

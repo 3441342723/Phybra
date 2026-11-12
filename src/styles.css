@@ -111,6 +111,7 @@ textarea { width: 100%; resize: vertical; }
 .moving-marker { fill: #f59e0b; stroke: #b45309; stroke-width: 2; }
 .moving-label { font-size: 11px; fill: #b45309; }
 .measure-line { stroke: #0891b2; stroke-width: 2; stroke-dasharray: 4 3; }
+.joint-marker { fill: #10b981; stroke: #047857; stroke-width: 1.5; }
 
 .numfield { margin: 6px 0; }
 .numfield-head { display: flex; justify-content: space-between; align-items: center; }
