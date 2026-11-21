@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { aiMode, MAX_IMAGE_BYTES, readProblem } from '../ai/client';
 import { PLATES_PROBLEM, type DemoKind } from '../ai/demo';
 import { describePath } from '../model/paths';
@@ -10,23 +10,39 @@ export function AiPanel({ store, dispatch, onClose }: { store: Store; dispatch: 
   const [demo, setDemo] = useState<DemoKind>('incline');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const requestRef = useRef<{ controller: AbortController; id: number } | null>(null);
+  const requestId = useRef(0);
   const draft = store.draft;
 
+  useEffect(() => () => {
+    requestRef.current?.controller.abort();
+    requestRef.current = null;
+  }, []);
+
   const close = () => {
+    requestRef.current?.controller.abort();
+    requestRef.current = null;
     dispatch({ type: 'setDraft', draft: null });
     onClose();
   };
 
   async function generate() {
+    requestRef.current?.controller.abort();
+    const controller = new AbortController();
+    const id = ++requestId.current;
+    requestRef.current = { controller, id };
     setBusy(true);
     setError('');
     try {
-      const result = await readProblem({ text, image, demo });
-      dispatch({ type: 'setDraft', draft: result });
+      const result = await readProblem({ text, image, demo, signal: controller.signal });
+      if (requestRef.current?.id === id && !controller.signal.aborted) dispatch({ type: 'setDraft', draft: result });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (!(e instanceof DOMException && e.name === 'AbortError') && requestRef.current?.id === id) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      if (requestRef.current?.id === id) {
+        requestRef.current = null;
+        setBusy(false);
+      }
     }
   }
 
@@ -73,6 +89,7 @@ export function AiPanel({ store, dispatch, onClose }: { store: Store; dispatch: 
             {error && <div className="hint error">{error}</div>}
             <div className="modal-actions">
               <button className="primary" disabled={busy || (!text && !image)} onClick={generate}>{busy ? '生成中…' : '生成场景草稿'}</button>
+              {busy && <button onClick={close}>取消请求</button>}
               <button onClick={close}>取消</button>
             </div>
           </div>

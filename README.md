@@ -49,7 +49,9 @@ npm run preview
 VITE_AI_ENDPOINT=https://your-backend.example/api/interpret
 ```
 
-接口接受 JSON 格式的 POST 请求：`text`，以及可选的 `imageBase64` 和 `imageName`。响应需符合 `src/model/types.ts` 中的 `SceneDraft` 类型。图片大小上限为 4 MB。
+接口接受 JSON 格式的 POST 请求，字段为 `text`，以及可选的 `imageBase64`（标准 Base64 编码）和 `imageName`。成功响应为 JSON `SceneDraft`，字段为 `source`、`scene`、`known`、`assumed`、`unknown`、`uncertain` 和 `warnings`。其中 `scene` 使用 version 2；缺少的物理数值用 `null` 表示。草稿中的 `known`/`assumed` 项包含 `path`、`label`、`value`，并可附带 `quote`/`basis`；`unknown` 项包含 `path` 和 `label`。路径必须引用草稿中的场景对象或受支持的求解目标。图片大小上限为 4 MiB，客户端请求超时为 30 秒。HTTP 429 显示额度耗尽，其他非成功状态显示服务不可用。
+
+客户端会对 AI 响应和导入场景执行运行时校验，包括字段类型、枚举、有限数字、唯一 ID、场景引用、参数绑定和草稿路径。结构错误会在进入预览前拒绝。物理条件缺失仍保留在场景草稿中，交由本地求解器报告并由用户补充。取消请求不会将迟到响应写入草稿；AI 只负责生成场景草稿，答案仍由本地确定性求解器计算。
 
 所有 `VITE_` 变量都会进入浏览器构建，只能配置公开服务地址；AI 服务密钥应保存在后端。公开上线前需实现服务端访问控制、限流与调用额度控制。
 
