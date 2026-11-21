@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type SyntheticEvent } from 'react';
 import type { Num, UnitKind } from '../model/types';
 import { defaultUnit, fromSI, toSI, UNITS } from '../model/units';
 
@@ -21,6 +21,7 @@ export function NumericField({ label, value, unitKind, min, max, step = 0.1, bou
   const [unit, setUnit] = useState(defaultUnit(unitKind));
   const [text, setText] = useState('');
   const [error, setError] = useState(false);
+  const sliderChanged = useRef(false);
   const factor = toSI(1, unit, unitKind) ?? 1;
   const display = value === null ? '' : String(Number((fromSI(value, unit, unitKind) ?? 0).toPrecision(6)));
 
@@ -30,6 +31,10 @@ export function NumericField({ label, value, unitKind, min, max, step = 0.1, bou
   }, [display]);
 
   const commitText = () => {
+    if (text === display) {
+      setError(false);
+      return;
+    }
     if (text.trim() === '' || text.trim() === '?') {
       setError(false);
       onCommit(null);
@@ -44,6 +49,13 @@ export function NumericField({ label, value, unitKind, min, max, step = 0.1, bou
     const si = toSI(parsed, unit, unitKind);
     if (si === null) setError(true);
     else onCommit(si);
+  };
+
+  const finishSlider = (e: SyntheticEvent<HTMLInputElement>) => {
+    if (!sliderChanged.current) return;
+    sliderChanged.current = false;
+    const si = toSI(Number(e.currentTarget.value), unit, unitKind);
+    if (si !== null) onCommit(si);
   };
 
   const slider = min !== undefined && max !== undefined && !disabled;
@@ -86,19 +98,19 @@ export function NumericField({ label, value, unitKind, min, max, step = 0.1, bou
           step={step / factor}
           value={value === null ? min / factor : (fromSI(value, unit, unitKind) ?? 0)}
           disabled={value === null}
-          onPointerDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => { e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId); }}
           onChange={(e) => {
             const si = toSI(Number(e.target.value), unit, unitKind);
-            if (si !== null) onTransient(si);
+            if (si !== null) {
+              sliderChanged.current = true;
+              onTransient(si);
+            }
           }}
-          onPointerUp={(e) => {
-            const si = toSI(Number((e.target as HTMLInputElement).value), unit, unitKind);
-            if (si !== null) onCommit(si);
-          }}
-          onKeyUp={(e) => {
-            const si = toSI(Number((e.target as HTMLInputElement).value), unit, unitKind);
-            if (si !== null) onCommit(si);
-          }}
+          onPointerUp={finishSlider}
+          onPointerCancel={finishSlider}
+          onLostPointerCapture={finishSlider}
+          onBlur={finishSlider}
+          onKeyUp={finishSlider}
         />
       )}
       {value === null && <div className="hint">未赋值：保持未知，尚不可定量求解</div>}
