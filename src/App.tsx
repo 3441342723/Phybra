@@ -4,7 +4,7 @@ import { getAt } from './model/paths';
 import { solve } from './solver';
 import { activeSolution, initStore, reducer, type Store } from './state/store';
 import { exportScene, loadCamera, loadScene, loadSnap, readSceneFile, saveCamera, saveScene, saveSnap } from './state/persist';
-import { clampRect, defaultLayout, loadLayout, saveLayout, WINDOW_IDS, type WindowId, type WindowLayout } from './state/layout';
+import { clampRect, defaultLayout, fitPlaybackCamera, loadLayout, saveLayout, WINDOW_IDS, type WindowId, type WindowLayout } from './state/layout';
 import { withField, type FieldEdit } from './state/editing';
 import { Canvas, type Edit } from './ui/Canvas';
 import { ObjectList } from './ui/ObjectList';
@@ -159,6 +159,19 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  function startPlayback() {
+    const st = storeRef.current;
+    const sol = activeSolution(st);
+    if (!sol) return;
+    const rect = workspaceRef.current?.getBoundingClientRect();
+    if (rect) {
+      const camera = fitPlaybackCamera(st.camera, sol.samples, layout, rect.width, rect.height);
+      if (camera !== st.camera) dispatch({ type: 'camera', camera });
+    }
+    if (st.playback.t >= sol.tEnd - 1e-9) dispatch({ type: 'scrub', t: 0 });
+    dispatch({ type: 'play' });
+  }
+
   function solveNow() {
     const r = solve(storeRef.current.present);
     dispatch({ type: 'formalResult', rev: storeRef.current.present.rev, result: r.ok ? { solution: r.solution, report: null } : { solution: null, report: r.report } });
@@ -278,7 +291,7 @@ export default function App() {
       </main>
 
       <footer className="bottom">
-        <Timeline store={store} dispatch={dispatch} solution={solution} />
+        <Timeline store={store} dispatch={dispatch} solution={solution} onPlay={startPlayback} />
       </footer>
 
       {deleteInfo && (

@@ -1,3 +1,6 @@
+import type { Vec2 } from '../model/types';
+import type { Camera } from './store';
+
 export type WindowId = 'objects' | 'properties' | 'result' | 'charts' | 'ai';
 export type WindowRect = { x: number; y: number; w: number; h: number };
 export type WindowLayout = {
@@ -35,6 +38,55 @@ export function clampRect(rect: WindowRect, width: number, height: number): Wind
     w,
     h,
   };
+}
+
+export function fitPlaybackCamera(camera: Camera, points: Vec2[], layout: WindowLayout, width: number, height: number): Camera {
+  if (!points.length || width <= 64 || height <= 64) return camera;
+  const minX = Math.min(...points.map((p) => p.x));
+  const maxX = Math.max(...points.map((p) => p.x));
+  const minY = Math.min(...points.map((p) => p.y));
+  const maxY = Math.max(...points.map((p) => p.y));
+  const panels = WINDOW_IDS.filter((id) => layout.open[id]).map((id) => layout.rects[id]);
+  const intersects = (left: number, top: number, right: number, bottom: number) => panels.some((r) =>
+    left < r.x + r.w && right > r.x && top < r.y + r.h && bottom > r.y);
+  if (points.every((p, i) => {
+    const previous = points[Math.max(0, i - 1)];
+    const left = camera.ox + Math.min(p.x, previous.x) * camera.scale - 32;
+    const right = camera.ox + Math.max(p.x, previous.x) * camera.scale + 32;
+    const top = camera.oy - Math.max(p.y, previous.y) * camera.scale - 32;
+    const bottom = camera.oy - Math.min(p.y, previous.y) * camera.scale + 32;
+    return left >= -1e-7 && right <= width + 1e-7 && top >= -1e-7 && bottom <= height + 1e-7 &&
+      !intersects(left + 1e-7, top + 1e-7, right - 1e-7, bottom - 1e-7);
+  })) return camera;
+
+  const xs = [...new Set([0, width, ...panels.flatMap((r) => [r.x, r.x + r.w])])]
+    .filter((x) => x >= 0 && x <= width).sort((a, b) => a - b);
+  const ys = [...new Set([0, height, ...panels.flatMap((r) => [r.y, r.y + r.h])])]
+    .filter((y) => y >= 0 && y <= height).sort((a, b) => a - b);
+  let best = camera;
+  let bestScale = 0;
+  let bestArea = 0;
+  for (let i = 0; i < xs.length - 1; i++) {
+    for (let j = i + 1; j < xs.length; j++) {
+      for (let k = 0; k < ys.length - 1; k++) {
+        for (let l = k + 1; l < ys.length; l++) {
+          const w = xs[j] - xs[i];
+          const h = ys[l] - ys[k];
+          if (w <= 64 || h <= 64 || intersects(xs[i], ys[k], xs[j], ys[l])) continue;
+          const scale = Math.min(camera.scale, (w - 64) / Math.max(maxX - minX, 1), (h - 64) / Math.max(maxY - minY, 1));
+          if (scale < bestScale || (scale === bestScale && w * h <= bestArea)) continue;
+          bestScale = scale;
+          bestArea = w * h;
+          best = {
+            scale,
+            ox: (xs[i] + xs[j]) / 2 - (minX + maxX) * scale / 2,
+            oy: (ys[k] + ys[l]) / 2 + (minY + maxY) * scale / 2,
+          };
+        }
+      }
+    }
+  }
+  return best;
 }
 
 export function loadLayout(): WindowLayout | null {

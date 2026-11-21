@@ -2,7 +2,7 @@ import type { Solution } from '../model/types';
 import { fmt } from '../model/units';
 import type { Action, Store } from '../state/store';
 
-export function Timeline({ store, dispatch, solution }: { store: Store; dispatch: (a: Action) => void; solution: Solution | null }) {
+export function Timeline({ store, dispatch, solution, onPlay }: { store: Store; dispatch: (a: Action) => void; solution: Solution | null; onPlay: () => void }) {
   const tEnd = solution?.tEnd ?? 0;
   const t = Math.min(store.playback.t, tEnd);
   const playing = store.playback.mode === 'playing';
@@ -13,13 +13,10 @@ export function Timeline({ store, dispatch, solution }: { store: Store; dispatch
         disabled={tEnd <= 0}
         onClick={() => {
           if (playing) dispatch({ type: 'pause' });
-          else {
-            if (t >= tEnd) dispatch({ type: 'scrub', t: 0 });
-            dispatch({ type: 'play' });
-          }
+          else onPlay();
         }}
       >
-        {playing ? '暂停' : t > 0 && t < tEnd ? '继续' : '播放'}
+        {playing ? '暂停' : t > 0 && t < tEnd - 1e-9 ? '继续' : '播放'}
       </button>
       <button disabled={!solution} onClick={() => dispatch({ type: 'resetPlayback' })} title="回到初始时刻，不改变已确认的初始条件">重置</button>
       <input

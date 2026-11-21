@@ -1,10 +1,50 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { Canvas } from '../src/ui/Canvas';
+import { initStore, reducer } from '../src/state/store';
 import { EXAMPLES, flatThrowExample, inclineExample } from '../src/model/factory';
 import { setAt } from '../src/model/paths';
 import { solve } from '../src/solver';
 import { ok } from './helpers';
 
 describe('一致性与统一模型', () => {
+  it.each(EXAMPLES)('$title 的物体图形跟随播放结果，重置恢复且不改初始条件', ({ build }) => {
+    const scene = build();
+    const original = structuredClone(scene);
+    const solution = ok(solve(scene));
+    const initial = initStore(scene);
+    const store = reducer(initial, { type: 'scrub', t: solution.tEnd / 2 });
+    const sample = solution.evalAt(store.playback.t);
+    const expectedX = store.camera.ox + sample.x * store.camera.scale;
+    const expectedY = store.camera.oy - sample.y * store.camera.scale;
+    const render = (state: typeof store) => renderToStaticMarkup(createElement(Canvas, {
+      store: state, solution, dispatch: () => {},
+      edit: { begin() {}, transient() {}, end() {}, apply() {} },
+    }));
+    const markup = render(store);
+    if (scene.bodies[0].kind === 'block') {
+      const body = markup.match(/<rect[^>]*class="body-block"[^>]*>/)?.[0];
+      expect(body).toContain(`translate(${expectedX} ${expectedY})`);
+    } else {
+      const body = markup.match(/<circle[^>]*class="body-projectile"[^>]*>/)?.[0];
+      expect(body).toContain(`cx="${expectedX}"`);
+      expect(body).toContain(`cy="${expectedY}"`);
+    }
+    expect(scene).toEqual(original);
+    expect(render(reducer(store, { type: 'resetPlayback' }))).toBe(render(initial));
+  });
+
+  it('大范围轨迹缩小视图后网格数量仍受屏幕尺寸约束', () => {
+    const scene = flatThrowExample();
+    const store = initStore(scene, { scale: 0.5, ox: 450, oy: 260 });
+    const markup = renderToStaticMarkup(createElement(Canvas, {
+      store, solution: ok(solve(scene)), dispatch: () => {},
+      edit: { begin() {}, transient() {}, end() {}, apply() {} },
+    }));
+    expect((markup.match(/class="(?:grid|axis)"/g) ?? []).length).toBeLessThan(200);
+  });
+
   it('四个示例场景均可求解', () => {
     for (const ex of EXAMPLES) {
       const r = solve(ex.build());
