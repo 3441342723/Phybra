@@ -1,6 +1,6 @@
 import type { Scene } from './types';
 
-const COLLECTIONS = ['bodies', 'supports', 'contacts', 'asks', 'params'] as const;
+const COLLECTIONS = ['bodies', 'supports', 'contacts', 'asks', 'params', 'fields', 'links'] as const;
 
 function parse(path: string): string[] {
   return path.split('.');
@@ -74,9 +74,9 @@ export function describePath(scene: Scene, path: string): string {
   const NAMES: Record<string, string> = {
     mass: '质量', accel: '加速度', angleDeg: '倾角', length: '长度', s: '沿面位置',
     mu_s: '静摩擦因数', mu_k: '动摩擦因数', value: '取值', x: 'x', y: 'y', t: '时刻 t', v: '速度 v',
-    attach: '依附关系', pos: '位置', vel: '速度', support: '支撑面',
+    attach: '依附关系', pos: '位置', vel: '速度', support: '支撑面', plates: '平行板', voltage: '电压', gradient: '场强变化量', charge: '电荷量',
   };
-  const COLL: Record<string, string> = { bodies: '物体', supports: '支撑面', contacts: '摩擦接触', asks: '待求量', params: '参数' };
+  const COLL: Record<string, string> = { bodies: '物体', supports: '支撑面', contacts: '摩擦接触', asks: '待求量', params: '参数', fields: '场区' };
   const fieldLabel = field ? field.split('.').map((f) => NAMES[f] ?? f).join('.') : '';
   if (head === 'gravity') return '重力加速度 g';
   const coll = (scene as any)[head];

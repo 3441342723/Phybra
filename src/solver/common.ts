@@ -4,14 +4,20 @@ import { fmt } from '../model/units';
 export const EPS = 1e-9;
 
 export function quadraticRoots(a: number, b: number, c: number): number[] {
-  if (Math.abs(a) < EPS) {
-    if (Math.abs(b) < EPS) return [];
-    return [-c / b];
+  if (a === 0) {
+    if (b === 0) return [];
+    const root = -c / b;
+    return Number.isFinite(root) ? [root] : [];
   }
-  const disc = b * b - 4 * a * c;
-  if (disc < -EPS) return [];
+  const b2 = b * b;
+  const ac4 = 4 * a * c;
+  const disc = b2 - ac4;
+  if (disc < -8 * Number.EPSILON * (Math.abs(b2) + Math.abs(ac4))) return [];
   const sq = Math.sqrt(Math.max(0, disc));
-  const roots = [(-b - sq) / (2 * a), (-b + sq) / (2 * a)];
+  if (sq === 0) return [-b / (2 * a)].filter(Number.isFinite);
+  // 先算不会发生相近数相减的一根，再用两根乘积取得另一根。
+  const q = -0.5 * (b + (b >= 0 ? sq : -sq));
+  const roots = [q / a, c / q];
   return roots.filter((r) => Number.isFinite(r)).sort((p, q) => p - q);
 }
 
@@ -28,6 +34,8 @@ export type StageEval = {
   s0: number;
   u0: number;
   a: number;
+  /** 此阶段动摩擦力的大小除以质量（m/s²）。 */
+  frictionPerMass?: number;
   eval: (dt: number) => { s: number; u: number };
 };
 
@@ -49,6 +57,7 @@ export function buildTrack(
   const samples: Sample[] = [];
   for (const se of stageEvals) {
     const dur = se.stage.t1 - se.stage.t0;
+    if (dur === 0) continue;
     const n = Math.max(24, Math.min(400, Math.ceil(dur * 60)));
     for (let i = 0; i <= n; i++) {
       if (se.stage.t0 > 0 && i === 0) continue;

@@ -1,4 +1,5 @@
-import type { AskKind, Solution } from '../model/types';
+import type { AskKind, EnergyEvent, EnergyPoint, Solution } from '../model/types';
+import { ENERGY_EVENTS, isEnergyPoint } from '../model/energy';
 import { askLabel } from '../model/validate';
 import { makeAsk } from '../model/factory';
 import { fieldValue, newParamName } from '../state/editing';
@@ -6,8 +7,9 @@ import type { FieldEdit } from '../state/editing';
 import type { Action, Store } from '../state/store';
 import { Latex } from './Latex';
 import { NumericField } from './NumericField';
+import { FIELD_LABELS, fieldLabel } from '../model/fields';
 
-const ASK_KINDS: AskKind[] = ['at_time', 'at_position', 'at_velocity', 'at_height', 'landing', 'apex', 'rest', 'end_of_support', 'friction_state'];
+const ASK_KINDS: AskKind[] = ['at_time', 'at_position', 'at_velocity', 'at_height', 'landing', 'apex', 'rest', 'end_of_support', 'friction_state', 'energy_at', 'work_between', 'field_entry', 'field_exit'];
 const ASK_TARGET: Partial<Record<AskKind, { key: 't' | 'x' | 'y' | 'v'; label: string; unit: 'time' | 'length' | 'speed' }>> = {
   at_time: { key: 't', label: '时刻', unit: 'time' },
   at_position: { key: 'x', label: '位置（斜面/连续轨道为沿轨 s）', unit: 'length' },
@@ -15,21 +17,52 @@ const ASK_TARGET: Partial<Record<AskKind, { key: 't' | 'x' | 'y' | 'v'; label: s
   at_height: { key: 'y', label: '高度', unit: 'length' },
 };
 
+function EnergyPointField({ label, path, value, fields }: {
+  label: string; path: string; value?: EnergyPoint; fields: FieldEdit;
+}) {
+  const point = isEnergyPoint(value) ? value : { kind: 'time', t: null } as const;
+  return (
+    <div className="energy-point-field">
+      <label>
+        {label}
+        <select value={point.kind === 'event' ? point.event : 'time'} onChange={(e) => {
+          const selected = e.target.value;
+          fields.commit(path, selected === 'time' ? { kind: 'time', t: null } : { kind: 'event', event: selected as EnergyEvent });
+        }}>
+          <option value="time">输入时刻</option>
+          {ENERGY_EVENTS.map(({ id, label: name }) => <option key={id} value={id}>{name}</option>)}
+        </select>
+      </label>
+      {point.kind === 'time' && (
+        <NumericField label={`${label} t`} value={point.t} unitKind="time"
+          onTransient={(t) => fields.transient(path, { kind: 'time', t })}
+          onCommit={(t) => fields.commit(path, { kind: 'time', t })} />
+      )}
+    </div>
+  );
+}
+
 export function ObjectList({ store, dispatch, fields, solution }: { store: Store; dispatch: (a: Action) => void; fields: FieldEdit; solution: Solution | null }) {
   const scene = store.present;
   const sel = store.selection;
   const select = (id: string) => dispatch({ type: 'select', id });
+  const kinds = {
+    block:'物块',ball:'小球',projectile:'小球（旧抛体）',boat:'小船',circular:'圆周运动（旧示例）',incline:'斜面',horizontal:'水平面',
+    rope:'绳',rod:'杆',...FIELD_LABELS,
+  };
+  const objects=[...scene.bodies,...scene.supports,...(scene.fields??[]),...(scene.links??[])];
+  const finiteFields=(scene.fields??[]).filter(f=>f.enabled&&f.shape.kind!=='global');
 
   return (
     <div className="panel-content">
       <section>
         <h3>对象</h3>
-        {scene.bodies.length + scene.supports.length === 0 && <div className="hint">用顶部工具栏在画布上放置物体或支撑面</div>}
-        {[...scene.bodies, ...scene.supports].map((obj: any) => (
+        {!objects.length && <div className="hint">用顶部工具栏在画布上放置物体、支撑面或场</div>}
+        {objects.map((obj) => (
           <div key={obj.id} className={`row selectable${sel === obj.id ? ' active' : ''}`} onClick={() => select(obj.id)}>
-            <span className="row-icon">{obj.kind === 'block' ? '▪' : obj.kind === 'projectile' ? '●' : obj.kind === 'incline' ? '◺' : '▬'}</span>
+            <span className="row-icon">{obj.kind === 'block' ? '▪' : obj.kind === 'projectile' ? '●' : obj.kind === 'boat' ? '⛵' : obj.kind === 'circular' ? '◎' : obj.kind === 'incline' ? '◺' : '▬'}</span>
             <span className="row-main">{obj.name}</span>
-            <span className="row-sub">{obj.kind === 'projectile' ? '抛体' : obj.kind === 'block' ? '滑块' : obj.kind === 'incline' ? '斜面' : '水平面'}</span>
+            <span className="row-sub">{'shape' in obj ? fieldLabel(obj) : kinds[obj.kind]}</span>
             <button className="mini danger" title="删除（存在依赖时会先列出受影响项）" onClick={(e) => { e.stopPropagation(); dispatch({ type: 'confirmDelete', id: obj.id }); }}>✕</button>
           </div>
         ))}
@@ -89,7 +122,13 @@ export function ObjectList({ store, dispatch, fields, solution }: { store: Store
           return (
             <div key={ask.id} className="ask-block">
               <div className="row">
-                <select value={ask.kind} onChange={(e) => fields.commit(`asks.${ask.id}.kind`, e.target.value)}>
+                <select value={ask.kind} onChange={(e) => {
+                  const kind = e.target.value as AskKind;
+                  if (kind === 'work_between' && !ask.energyFrom) {
+                    fields.commit('asks', scene.asks.map((item) => item.id === ask.id
+                      ? { ...item, kind, energyFrom: { kind: 'event', event: 'initial' } } : item));
+                  } else fields.commit(`asks.${ask.id}.kind`, kind);
+                }}>
                   {ASK_KINDS.map((k) => <option key={k} value={k}>{askLabel({ ...ask, kind: k })}</option>)}
                 </select>
                 <button className="mini danger" onClick={() => fields.commit('asks', scene.asks.filter((a) => a.id !== ask.id))}>✕</button>
@@ -103,18 +142,31 @@ export function ObjectList({ store, dispatch, fields, solution }: { store: Store
                   onCommit={(v) => fields.commit(`asks.${ask.id}.${target.key}`, v)}
                 />
               )}
+              {(ask.kind === 'field_entry' || ask.kind === 'field_exit') && <label className="field-control">查询场区
+                <select value={ask.fieldId??''} onChange={(e)=>fields.commit(`asks.${ask.id}.fieldId`,e.target.value||null)}>
+                  <option value="">{ask.kind==='field_exit'?'按场景的出场策略':'请选择场区'}</option>
+                  {ask.fieldId&&!finiteFields.some(f=>f.id===ask.fieldId)&&<option value={ask.fieldId} disabled>所选场区不可用</option>}
+                  {finiteFields.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+              </label>}
+              {(ask.kind === 'energy_at' || ask.kind === 'work_between') &&
+                <EnergyPointField label={ask.kind === 'energy_at' ? '查询时刻' : '开始时刻'} path={`asks.${ask.id}.energyFrom`} value={ask.energyFrom} fields={fields} />}
+              {ask.kind === 'work_between' &&
+                <EnergyPointField label="结束时刻" path={`asks.${ask.id}.energyTo`} value={ask.energyTo} fields={fields} />}
             </div>
           );
         })}
         <div className="row">
-          <select id="new-ask-kind" defaultValue="at_time">
-            {ASK_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+          <select id="new-ask-kind" aria-label="新增待求量类型" defaultValue="at_time">
+            {ASK_KINDS.map((k) => <option key={k} value={k}>{askLabel({ kind: k })}</option>)}
           </select>
           <button className="mini" onClick={() => {
             const el = document.getElementById('new-ask-kind') as HTMLSelectElement;
             const kind = el.value as AskKind;
             const target = ASK_TARGET[kind];
-            fields.commit('asks', [...scene.asks, makeAsk(kind, target ? { [target.key]: target.key === 't' ? 1 : target.key === 'v' ? 2 : 1 } : {})]);
+            fields.commit('asks', [...scene.asks, makeAsk(kind, kind === 'work_between'
+              ? { energyFrom: { kind: 'event', event: 'initial' } }
+              : target ? { [target.key]: target.key === 't' ? 1 : target.key === 'v' ? 2 : 1 } : {})]);
           }}>＋添加待求</button>
         </div>
       </section>

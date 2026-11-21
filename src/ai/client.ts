@@ -1,12 +1,12 @@
 import type { SceneDraft } from '../model/types';
-import { demoDraft } from './demo';
+import { demoDraft, type DemoKind } from './demo';
 
 const ENDPOINT = (import.meta as any).env?.VITE_AI_ENDPOINT as string | undefined;
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 export const aiMode: 'remote' | 'demo' = ENDPOINT ? 'remote' : 'demo';
 
-export async function readProblem(input: { text: string; image: File | null; demo: 'incline' | 'flat' }): Promise<SceneDraft> {
+export async function readProblem(input: { text: string; image: File | null; demo: DemoKind }): Promise<SceneDraft> {
   if (input.image && input.image.size > MAX_IMAGE_BYTES) {
     throw new Error('图片超过 4 MB，请压缩后再上传');
   }

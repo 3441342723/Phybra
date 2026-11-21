@@ -3,8 +3,9 @@ import { buildSurfaceTrack, trackLocalToGlobal, trackSegmentAt, trackWorld } fro
 import { supportDir } from '../model/geometry';
 import { fmt } from '../model/units';
 import { buildTrack, dedupeNumbers, EPS, latexNum, positiveRoots, quadraticRoots } from './common';
-import { runTrack, type Phase } from './alongTrack';
+import { runTrack, trackEndNote, TRACK_INCOMPLETE_NOTE, type Phase } from './alongTrack';
 import { issue, missing, type Template } from './template';
+import { withEnergy } from './energy';
 
 export const multiTrackTemplate: Template = {
   id: 'incline-friction',
@@ -64,6 +65,7 @@ export const multiTrackTemplate: Template = {
       if (Math.abs(u) > EPS) {
         return {
           a: -g * sin - Math.sign(u) * muK * g * cos,
+          frictionPerMass: muK * g * cos,
           label: `${name}：沿轨道${u > 0 ? '正向' : '反向'}滑动`,
           note: '重力沿轨分量与滑动摩擦共同决定加速度',
         };
@@ -73,14 +75,14 @@ export const multiTrackTemplate: Template = {
       }
       return {
         a: -Math.sign(sin) * g * (Math.abs(sin) - muK * cos),
+        frictionPerMass: muK * g * cos,
         label: `${name}：由静止开始滑动`,
         note: '静摩擦不足以维持静止',
       };
     };
 
-    const maxAskTime = Math.max(0, ...scene.asks.map((a) => a.t ?? 0));
-    const window = Math.max(6, maxAskTime * 1.2);
-    const result = runTrack({ s0, u0, length: track.length, junctions: track.junctions, decide, window });
+    const result = runTrack({ s0, u0, length: track.length, junctions: track.junctions, decide });
+    const incomplete = result.outcome === 'incomplete';
     const built = buildTrack(result.stages, result.tEnd, (s, u) => trackWorld(track, s, u));
 
     const answers: Answer[] = [];
@@ -141,7 +143,7 @@ export const multiTrackTemplate: Template = {
         substitution: `t=${latexNum(endEvent.t)}\\ \\mathrm{s},\\ s=${latexNum(endEvent.s)}\\ \\mathrm{m}`,
       });
     } else {
-      answers.push({ id: 'end_t', label: '到达轨道端点的时间', value: null, unit: 's', note: `在 ${fmt(result.tEnd)} s 观察窗内未到达外端点` });
+      answers.push({ id: 'end_t', label: '到达轨道端点的时间', value: null, unit: 's', note: trackEndNote(result.outcome, result.events) });
     }
     const restEvent = result.events.find((e) => e.kind === 'rest');
     if (restEvent) {
@@ -156,8 +158,8 @@ export const multiTrackTemplate: Template = {
     for (const ask of scene.asks) {
       if (ask.kind === 'at_time') {
         const t = ask.t!;
-        if (t > result.tEnd + EPS) {
-          answers.push({ id: ask.id, label: `t=${fmt(t)} s 的状态`, value: null, unit: '', note: '该时刻在运动结束之后' });
+        if (t > result.tEnd + EPS && result.outcome !== 'stationary') {
+          answers.push({ id: ask.id, label: `t=${fmt(t)} s 的状态`, value: null, unit: '', note: incomplete ? TRACK_INCOMPLETE_NOTE : '该时刻在运动结束之后' });
           continue;
         }
         const st = built.evalAt(t);
@@ -182,7 +184,7 @@ export const multiTrackTemplate: Template = {
         answers.push({
           id: ask.id, label: `到达沿轨 s=${fmt(target)} m 的时刻`, value: times[0] ?? null, unit: 's',
           others: times.slice(1).map((r) => ({ value: r, unit: 's' })),
-          note: times.length === 0 ? '运动范围内不经过该沿轨位置' : times.length > 1 ? '多次经过同一位置，属于多解' : undefined,
+          note: incomplete ? TRACK_INCOMPLETE_NOTE : times.length === 0 ? '运动范围内不经过该沿轨位置' : times.length > 1 ? '多次经过同一位置，属于多解' : undefined,
         });
       }
       if (ask.kind === 'at_velocity') {
@@ -197,14 +199,14 @@ export const multiTrackTemplate: Template = {
         answers.push({
           id: ask.id, label: `沿轨速度达到 ${fmt(target)} m/s 的时刻`, value: times[0] ?? null, unit: 's',
           others: times.slice(1).map((r) => ({ value: r, unit: 's' })),
-          note: times.length === 0 ? '运动范围内不会出现该速度' : undefined,
+          note: incomplete ? TRACK_INCOMPLETE_NOTE : times.length === 0 ? '运动范围内不会出现该速度' : undefined,
         });
       }
     }
 
     return {
       ok: true,
-      solution: {
+      solution: withEnergy(scene, {
         template, sceneRev: scene.rev, tEnd: result.tEnd,
         stages: built.stages, answers, steps,
         formulas: [
@@ -214,7 +216,15 @@ export const multiTrackTemplate: Template = {
         ],
         samples: built.samples, flags: [...flags], evalAt: built.evalAt,
         events: result.events.map((e) => ({ kind: e.kind, t: e.t, label: e.label })),
-      },
+      }, {
+        track: result,
+        prescribedAccel: aGiven ?? undefined,
+        geometryGap: track.segments.slice(1).some((seg, i) => {
+          const prev = track.segments[i];
+          return Math.hypot(seg.origin.x - (prev.origin.x + prev.length * prev.dir.x),
+            seg.origin.y - (prev.origin.y + prev.length * prev.dir.y)) > 1e-7;
+        }),
+      }),
     };
   },
 };

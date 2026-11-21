@@ -1,9 +1,10 @@
 import type { Answer, DerivationStep, Scene } from '../model/types';
 import { fmt } from '../model/units';
 import { buildTrack, dedupeNumbers, EPS, latexNum, positiveRoots, quadraticRoots } from './common';
-import { runTrack, type Phase } from './alongTrack';
+import { runTrack, trackEndNote, TRACK_INCOMPLETE_NOTE, type Phase } from './alongTrack';
 import { supportDir, supportLength } from '../model/geometry';
 import { issue, missing, type Template } from './template';
+import { withEnergy } from './energy';
 
 export const inclineTemplate: Template = {
   id: 'incline-friction',
@@ -17,7 +18,7 @@ export const inclineTemplate: Template = {
   solve(scene: Scene) {
     const body = scene.bodies[0];
     const sup = scene.supports.find((s) => s.id === body.attach!.support)!;
-    const contact = scene.contacts.find((c) => c.body === body.id);
+    const contact = scene.contacts.find((c) => c.body === body.id && c.support === sup.id);
     const blockers = [];
     const pending: Array<{ path: string; label: string }> = [];
     const bp = `bodies.${body.id}`;
@@ -44,17 +45,17 @@ export const inclineTemplate: Template = {
     const aUp = -g * sin - muK * g * cos;
     const aDown = -g * sin + muK * g * cos;
     const aFromRest = -Math.sign(sin) * g * (Math.abs(sin) - muK * cos);
+    const frictionPerMass = muK * g * cos;
 
     const decide = ({ u }: { s: number; u: number }): Phase => {
-      if (u > EPS) return { a: -g * sin - Math.sign(u) * muK * g * cos, label: '沿斜面向上运动', note: '重力分量与摩擦力均沿斜面向下' };
-      if (u < -EPS) return { a: -g * sin - Math.sign(u) * muK * g * cos, label: '沿斜面向下运动', note: '摩擦力沿斜面向上' };
+      if (u > EPS) return { a: aUp, frictionPerMass, label: '沿斜面正向运动', note: '滑动摩擦力与速度反向' };
+      if (u < -EPS) return { a: aDown, frictionPerMass, label: '沿斜面反向运动', note: '滑动摩擦力与速度反向' };
       if (Math.abs(sin) <= muS * cos + EPS) return { a: 0, static: true, label: '静止（静摩擦自锁）', note: '|tanθ| ≤ μ_s，静摩擦足以平衡重力分量' };
-      return { a: aFromRest, label: '由静止开始滑动', note: '|tanθ| > μ_s，静摩擦不足以维持静止' };
+      return { a: aFromRest, frictionPerMass, label: '由静止开始滑动', note: '|tanθ| > μ_s，静摩擦不足以维持静止' };
     };
 
-    const maxAskTime = Math.max(0, ...scene.asks.map((a) => a.t ?? 0));
-    const window = Math.max(6, maxAskTime * 1.2);
-    const track = runTrack({ s0, u0, length: L, decide, window });
+    const track = runTrack({ s0, u0, length: L, decide });
+    const incomplete = track.outcome === 'incomplete';
     const built = buildTrack(track.stages, track.tEnd, (s, u) => ({
       x: sup.a.x + s * dir.x, y: sup.a.y + s * dir.y, vx: u * dir.x, vy: u * dir.y,
     }));
@@ -120,10 +121,8 @@ export const inclineTemplate: Template = {
         formula: 's=s_0+u_0 t+\\frac{1}{2}a t^2,\\quad u=u_0+a t',
         substitution: `t=${latexNum(endEvent.t)}\\ \\mathrm{s},\\ |u|=${latexNum(Math.abs(uEnd))}\\ \\mathrm{m/s}`,
       });
-    } else if (staticState) {
-      answers.push({ id: 'end_t', label: '到达端点的时间', value: null, unit: 's', note: '物体静止，不会到达端点' });
     } else {
-      answers.push({ id: 'end_t', label: '到达端点的时间', value: null, unit: 's', note: `在 ${fmt(track.tEnd)} s 观察窗内未到达端点（可能先停下）` });
+      answers.push({ id: 'end_t', label: '到达端点的时间', value: null, unit: 's', note: trackEndNote(track.outcome, track.events) });
     }
     const restEvent = track.events.find((e) => e.kind === 'rest');
     if (restEvent) {
@@ -134,8 +133,8 @@ export const inclineTemplate: Template = {
     for (const ask of scene.asks) {
       if (ask.kind === 'at_time') {
         const t = ask.t!;
-        if (t > track.tEnd + EPS) {
-          answers.push({ id: ask.id, label: `t=${fmt(t)} s 的状态`, value: null, unit: '', note: '该时刻在运动结束之后' });
+        if (t > track.tEnd + EPS && track.outcome !== 'stationary') {
+          answers.push({ id: ask.id, label: `t=${fmt(t)} s 的状态`, value: null, unit: '', note: incomplete ? TRACK_INCOMPLETE_NOTE : '该时刻在运动结束之后' });
           continue;
         }
         const st = built.evalAt(t);
@@ -159,7 +158,7 @@ export const inclineTemplate: Template = {
         answers.push({
           id: ask.id, label: `到达 s=${fmt(X)} m 的时刻`, value: times[0] ?? null, unit: 's',
           others: times.slice(1).map((r) => ({ value: r, unit: 's' })),
-          note: times.length === 0 ? '运动范围内不经过该位置' : times.length > 1 ? '多次经过同一位置（往返），属于多解' : undefined,
+          note: incomplete ? TRACK_INCOMPLETE_NOTE : times.length === 0 ? '运动范围内不经过该位置' : times.length > 1 ? '多次经过同一位置（往返），属于多解' : undefined,
         });
       }
       if (ask.kind === 'at_velocity') {
@@ -174,19 +173,19 @@ export const inclineTemplate: Template = {
         answers.push({
           id: ask.id, label: `沿面速度达到 ${fmt(V)} m/s 的时刻`, value: times[0] ?? null, unit: 's',
           others: times.slice(1).map((r) => ({ value: r, unit: 's' })),
-          note: times.length === 0 ? '运动范围内不会出现该速度' : undefined,
+          note: incomplete ? TRACK_INCOMPLETE_NOTE : times.length === 0 ? '运动范围内不会出现该速度' : undefined,
         });
       }
     }
 
     return {
       ok: true,
-      solution: {
+      solution: withEnergy(scene, {
         template: 'incline-friction', sceneRev: scene.rev, tEnd: track.tEnd,
         stages: built.stages, answers, steps, formulas, samples: built.samples,
         flags: [...flags], evalAt: built.evalAt,
         events: track.events.map((e) => ({ kind: e.kind, t: e.t, label: e.label })),
-      },
+      }, { track }),
     };
   },
 };

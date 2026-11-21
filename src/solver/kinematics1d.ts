@@ -1,9 +1,10 @@
 import type { Answer, DerivationStep, Scene } from '../model/types';
 import { fmt } from '../model/units';
 import { buildTrack, dedupeNumbers, EPS, latexNum, positiveRoots, quadraticRoots } from './common';
-import { runTrack, type Phase } from './alongTrack';
+import { runTrack, trackEndNote, TRACK_INCOMPLETE_NOTE, type Phase } from './alongTrack';
 import { supportLength } from '../model/geometry';
 import { issue, missing, type Template } from './template';
+import { withEnergy } from './energy';
 
 export const kinematicsTemplate: Template = {
   id: 'kinematics-1d',
@@ -17,7 +18,7 @@ export const kinematicsTemplate: Template = {
   solve(scene: Scene) {
     const body = scene.bodies[0];
     const sup = scene.supports.find((s) => s.id === body.attach!.support)!;
-    const contact = scene.contacts.find((c) => c.body === body.id);
+    const contact = scene.contacts.find((c) => c.body === body.id && c.support === sup.id);
     const blockers = [];
     const pending: Array<{ path: string; label: string }> = [];
     const bp = `bodies.${body.id}`;
@@ -40,11 +41,10 @@ export const kinematicsTemplate: Template = {
     const decide = ({ u }: { s: number; u: number }): Phase => {
       if (aGiven !== null) return { a: aGiven, label: '匀变速直线运动', note: '加速度为已知条件' };
       if (Math.abs(u) <= EPS) return { a: 0, static: true, label: '静止', note: '无驱动力，滑动停止后保持静止' };
-      return { a: -Math.sign(u) * muK * g, label: muK === 0 ? '匀速直线运动（光滑）' : '滑动摩擦减速', note: 'a = -sgn(v)·μ_k g' };
+      return { a: -Math.sign(u) * muK * g, frictionPerMass: muK * g, label: muK === 0 ? '匀速直线运动（光滑）' : '滑动摩擦减速', note: 'a = -sgn(v)·μ_k g' };
     };
-    const maxAskTime = Math.max(0, ...scene.asks.map((a) => a.t ?? 0));
-    const window = Math.max(6, maxAskTime * 1.2);
-    const track = runTrack({ s0, u0, length: L, decide, window });
+    const track = runTrack({ s0, u0, length: L, decide });
+    const incomplete = track.outcome === 'incomplete';
     const built = buildTrack(track.stages, track.tEnd, (s, u) => ({ x: sup.a.x + s, y: sup.a.y, vx: u, vy: 0 }));
 
     const answers: Answer[] = [];
@@ -96,14 +96,17 @@ export const kinematicsTemplate: Template = {
         { id: 'end_t', label: '到达水平面端点的时间', value: endEvent.t, unit: 's', note: endEvent.label },
         { id: 'end_v', label: '到达端点时的速度', value: st.vx, unit: 'm/s' },
       );
+    } else {
+      answers.push({ id: 'end_t', label: '到达水平面端点的时间', value: null, unit: 's', note: trackEndNote(track.outcome, track.events) });
     }
 
     const flags = new Set<'multi'>();
     for (const ask of scene.asks) {
       if (ask.kind === 'at_time') {
         const t = ask.t!;
-        if (t > track.tEnd + EPS) {
-          answers.push({ id: ask.id, label: `t=${fmt(t)} s 的状态`, value: null, unit: '', note: '该时刻在运动结束之后' });
+        const afterStop = t > track.tEnd + EPS && track.outcome === 'stationary';
+        if (t > track.tEnd + EPS && !afterStop) {
+          answers.push({ id: ask.id, label: `t=${fmt(t)} s 的状态`, value: null, unit: '', note: incomplete ? TRACK_INCOMPLETE_NOTE : '该时刻在运动结束之后' });
           continue;
         }
         const st = built.evalAt(t);
@@ -113,7 +116,7 @@ export const kinematicsTemplate: Template = {
         );
         steps.push({
           title: `t=${fmt(t)} s 的状态`,
-          formula: 'x=x_0+v_0 t+\\frac{1}{2}a t^2,\\quad v=v_0+a t',
+          formula: afterStop ? 'x=x_{\\mathrm{stop}},\\quad v=0' : 'x=x_0+v_0 t+\\frac{1}{2}a t^2,\\quad v=v_0+a t',
           substitution: `x=${latexNum(st.x)}\\ \\mathrm{m},\\quad v=${latexNum(st.vx)}\\ \\mathrm{m/s}`,
         });
       }
@@ -131,7 +134,7 @@ export const kinematicsTemplate: Template = {
         answers.push({
           id: ask.id, label: `到达 x=${fmt(ask.x!)} m 的时刻`, value: times[0] ?? null, unit: 's',
           others: times.slice(1).map((r) => ({ value: r, unit: 's' })),
-          note: times.length === 0 ? '运动范围内不经过该位置' : times.length > 1 ? '往返运动会多次经过，属于多解' : undefined,
+          note: incomplete ? TRACK_INCOMPLETE_NOTE : times.length === 0 ? '运动范围内不经过该位置' : times.length > 1 ? '往返运动会多次经过，属于多解' : undefined,
         });
       }
       if (ask.kind === 'at_velocity') {
@@ -146,19 +149,19 @@ export const kinematicsTemplate: Template = {
         answers.push({
           id: ask.id, label: `速度达到 ${fmt(V)} m/s 的时刻`, value: times[0] ?? null, unit: 's',
           others: times.slice(1).map((r) => ({ value: r, unit: 's' })),
-          note: times.length === 0 ? '运动范围内不会出现该速度' : undefined,
+          note: incomplete ? TRACK_INCOMPLETE_NOTE : times.length === 0 ? '运动范围内不会出现该速度' : undefined,
         });
       }
     }
 
     return {
       ok: true,
-      solution: {
+      solution: withEnergy(scene, {
         template: 'kinematics-1d', sceneRev: scene.rev, tEnd: track.tEnd,
         stages: built.stages, answers, steps, formulas, samples: built.samples,
         flags: [...flags], evalAt: built.evalAt,
         events: track.events.map((e) => ({ kind: e.kind, t: e.t, label: e.label })),
-      },
+      }, { track, prescribedAccel: aGiven ?? undefined }),
     };
   },
 };
