@@ -4,7 +4,7 @@ import { getAt } from './model/paths';
 import { solve } from './solver';
 import { activeSolution, initStore, reducer, type Store } from './state/store';
 import { exportScene, loadCamera, loadScene, loadSnap, readSceneFile, saveCamera, saveScene, saveSnap } from './state/persist';
-import { clampRect, defaultLayout, fitPlaybackCamera, loadLayout, saveLayout, WINDOW_IDS, type WindowId, type WindowLayout } from './state/layout';
+import { defaultLayout, fitPlaybackCamera, loadLayout, NARROW_WIDTH, saveLayout, workspaceLayout, WINDOW_IDS, type WindowId, type WindowLayout } from './state/layout';
 import { withField, type FieldEdit } from './state/editing';
 import { Canvas, type Edit } from './ui/Canvas';
 import { ObjectList } from './ui/ObjectList';
@@ -20,11 +20,27 @@ export default function App() {
   const [store, dispatch] = useReducer(reducer, undefined, () => initStore(loadScene() ?? inclineExample(), loadCamera() ?? undefined, loadSnap() ?? undefined));
   const storeRef = useRef<Store>(store);
   storeRef.current = store;
-  const [layout, setLayout] = useState<WindowLayout>(() => loadLayout() ?? defaultLayout(window.innerWidth, window.innerHeight - 180));
+  const [layout, setLayout] = useState<WindowLayout>(() => loadLayout() ?? defaultLayout(Math.max(1024, window.innerWidth), Math.max(600, window.innerHeight - 180)));
+  const [workspaceSize, setWorkspaceSize] = useState({ width: window.innerWidth, height: window.innerHeight - 180 });
+  const [drawer, setDrawer] = useState<WindowId | null>(null);
+  const narrow = workspaceSize.width <= NARROW_WIDTH;
+  const viewLayout = workspaceLayout(layout, workspaceSize.width, workspaceSize.height, drawer);
   const workspaceRef = useRef<HTMLElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const deleteDialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = deleteDialogRef.current;
+    if (!dialog) return;
+    dialog.showModal();
+    return () => dialog.close();
+  }, [store.confirmDelete]);
 
   function openWindow(id: WindowId) {
+    if (narrow) {
+      setDrawer(id);
+      return;
+    }
     setLayout((prev) => ({
       ...prev,
       open: { ...prev.open, [id]: true },
@@ -34,6 +50,10 @@ export default function App() {
 
   function closeWindow(id: WindowId) {
     if (id === 'ai') dispatch({ type: 'setDraft', draft: null });
+    if (narrow) {
+      setDrawer(null);
+      return;
+    }
     setLayout((prev) => ({ ...prev, open: { ...prev.open, [id]: false } }));
   }
 
@@ -42,6 +62,10 @@ export default function App() {
   }
 
   function resetWindows() {
+    if (narrow) {
+      setDrawer(null);
+      return;
+    }
     const rect = workspaceRef.current?.getBoundingClientRect();
     setLayout(defaultLayout(rect?.width ?? window.innerWidth, rect?.height ?? window.innerHeight - 180));
   }
@@ -112,10 +136,7 @@ export default function App() {
     const observer = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
       if (width <= 0 || height <= 0) return;
-      setLayout((prev) => ({
-        ...prev,
-        rects: Object.fromEntries(WINDOW_IDS.map((id) => [id, clampRect(prev.rects[id], width, height)])) as WindowLayout['rects'],
-      }));
+      setWorkspaceSize({ width, height });
     });
     observer.observe(workspaceRef.current);
     return () => observer.disconnect();
@@ -145,6 +166,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const tag = (document.activeElement?.tagName ?? '').toLowerCase();
       const typing = tag === 'input' || tag === 'textarea' || tag === 'select';
+      if (typing) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         dispatch({ type: e.shiftKey ? 'redo' : 'undo' });
@@ -165,7 +187,7 @@ export default function App() {
     if (!sol) return;
     const rect = workspaceRef.current?.getBoundingClientRect();
     if (rect) {
-      const camera = fitPlaybackCamera(st.camera, sol.samples, layout, rect.width, rect.height);
+      const camera = fitPlaybackCamera(st.camera, sol.samples, workspaceLayout(layout, rect.width, rect.height, null), rect.width, rect.height);
       if (camera !== st.camera) dispatch({ type: 'camera', camera });
     }
     if (st.playback.t >= sol.tEnd - 1e-9) dispatch({ type: 'scrub', t: 0 });
@@ -176,6 +198,7 @@ export default function App() {
     const r = solve(storeRef.current.present);
     dispatch({ type: 'formalResult', rev: storeRef.current.present.rev, result: r.ok ? { solution: r.solution, report: null } : { solution: null, report: r.report } });
     dispatch({ type: 'resetPlayback' });
+    openWindow('result');
   }
 
   const deleteInfo = useMemo(() => {
@@ -257,37 +280,33 @@ export default function App() {
         <button className="primary" onClick={solveNow}>检查并求解</button>
       </header>
 
-      <Toolbar tool={store.tool} snap={store.snap} layout={layout} dispatch={dispatch} onOpen={openWindow} onReset={resetWindows} />
+      <Toolbar tool={store.tool} snap={store.snap} layout={viewLayout} dispatch={dispatch} onOpen={openWindow} onReset={resetWindows} />
+      {narrow && (
+        <nav className="panel-tabs" aria-label="工作区面板">
+          {WINDOW_IDS.map((id) => (
+            <button key={id} aria-expanded={drawer === id} onClick={() => openWindow(id)}>
+              {{ objects: '对象', properties: '属性', result: '结果', charts: '曲线', ai: 'AI' }[id]}
+            </button>
+          ))}
+        </nav>
+      )}
 
       <main className="workspace" ref={workspaceRef}>
         <section className="center">
           <Canvas store={store} dispatch={dispatch} solution={solution} edit={edit} />
         </section>
-        {layout.open.objects && (
-          <FloatingWindow title="对象与代数" rect={layout.rects.objects} z={layout.z.objects} onFocus={() => openWindow('objects')} onClose={() => closeWindow('objects')} onChange={(rect) => changeWindow('objects', rect)}>
-            <ObjectList store={store} dispatch={dispatch} fields={fields} solution={solution} />
+        {WINDOW_IDS.map((id) => (
+          <FloatingWindow key={id} drawer={narrow} visible={viewLayout.open[id]}
+            title={{ objects: '对象与代数', properties: '属性', result: '答案与推导', charts: '曲线', ai: 'AI 建模' }[id]}
+            rect={viewLayout.rects[id]} z={layout.z[id]} onFocus={() => openWindow(id)}
+            onClose={() => closeWindow(id)} onChange={(rect) => changeWindow(id, rect)}>
+            {id === 'objects' && <ObjectList store={store} dispatch={dispatch} fields={fields} solution={solution} />}
+            {id === 'properties' && <Properties store={store} dispatch={dispatch} fields={fields} />}
+            {id === 'result' && <ResultPanel store={store} dispatch={dispatch} solution={solution} />}
+            {id === 'charts' && <Charts solution={solution} t={store.playback.t} />}
+            {id === 'ai' && <AiPanel store={store} dispatch={dispatch} onClose={() => closeWindow('ai')} />}
           </FloatingWindow>
-        )}
-        {layout.open.properties && (
-          <FloatingWindow title="属性" rect={layout.rects.properties} z={layout.z.properties} onFocus={() => openWindow('properties')} onClose={() => closeWindow('properties')} onChange={(rect) => changeWindow('properties', rect)}>
-            <Properties store={store} dispatch={dispatch} fields={fields} />
-          </FloatingWindow>
-        )}
-        {layout.open.result && (
-          <FloatingWindow title="答案与推导" rect={layout.rects.result} z={layout.z.result} onFocus={() => openWindow('result')} onClose={() => closeWindow('result')} onChange={(rect) => changeWindow('result', rect)}>
-            <ResultPanel store={store} dispatch={dispatch} solution={solution} />
-          </FloatingWindow>
-        )}
-        {layout.open.charts && (
-          <FloatingWindow title="曲线" rect={layout.rects.charts} z={layout.z.charts} onFocus={() => openWindow('charts')} onClose={() => closeWindow('charts')} onChange={(rect) => changeWindow('charts', rect)}>
-            <Charts solution={solution} t={store.playback.t} />
-          </FloatingWindow>
-        )}
-        {layout.open.ai && (
-          <FloatingWindow title="AI 建模" rect={layout.rects.ai} z={layout.z.ai} onFocus={() => openWindow('ai')} onClose={() => closeWindow('ai')} onChange={(rect) => changeWindow('ai', rect)}>
-            <AiPanel store={store} dispatch={dispatch} onClose={() => closeWindow('ai')} />
-          </FloatingWindow>
-        )}
+        ))}
       </main>
 
       <footer className="bottom">
@@ -295,8 +314,8 @@ export default function App() {
       </footer>
 
       {deleteInfo && (
-        <div className="modal-mask" onClick={() => dispatch({ type: 'confirmDelete', id: null })}>
-          <div className="modal small" onClick={(e) => e.stopPropagation()}>
+        <dialog ref={deleteDialogRef} className="modal small delete-dialog" aria-label="删除对象"
+          onCancel={(e) => { e.preventDefault(); dispatch({ type: 'confirmDelete', id: null }); }}>
             <div className="modal-head"><strong>删除对象</strong></div>
             <div className="modal-body">
               {showDelete ? (
@@ -316,8 +335,7 @@ export default function App() {
                 <button onClick={() => dispatch({ type: 'confirmDelete', id: null })}>取消</button>
               </div>
             </div>
-          </div>
-        </div>
+        </dialog>
       )}
       <div className="ai-note">AI 生成内容标识：AI 仅用于读题与场景草稿，物理答案由本地解析求解器计算</div>
     </div>

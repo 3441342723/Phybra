@@ -30,7 +30,7 @@ export function Toolbar({ tool, snap, layout, dispatch, onOpen, onReset }: {
         const current = group.tools.find((item) => item.id === tool);
         return (
           <details className="toolbar-menu" key={group.id}>
-            <summary className={current ? 'active' : ''}>{group.label}{current ? ` · ${current.label}` : ''}</summary>
+            <summary className={current ? 'active' : ''} title={current?.label}>{group.label}{current && <span className="toolbar-current"> · {current.label}</span>}</summary>
             <div className="menu-popover">
               {group.tools.map((item) => (
                 <button key={item.id} className={tool === item.id ? 'active' : ''} onClick={(e) => choose(item.id, e.currentTarget)}>{item.label}</button>
