@@ -4,6 +4,7 @@ import { buildTrack, dedupeNumbers, EPS, latexNum, positiveRoots, quadraticRoots
 import { runTrack, trackEndNote, TRACK_INCOMPLETE_NOTE, type Phase } from './alongTrack';
 import { supportDir, supportLength } from '../model/geometry';
 import { issue, missing, type Template } from './template';
+import { withEnergy } from './energy';
 
 export const inclineTemplate: Template = {
   id: 'incline-friction',
@@ -17,7 +18,7 @@ export const inclineTemplate: Template = {
   solve(scene: Scene) {
     const body = scene.bodies[0];
     const sup = scene.supports.find((s) => s.id === body.attach!.support)!;
-    const contact = scene.contacts.find((c) => c.body === body.id);
+    const contact = scene.contacts.find((c) => c.body === body.id && c.support === sup.id);
     const blockers = [];
     const pending: Array<{ path: string; label: string }> = [];
     const bp = `bodies.${body.id}`;
@@ -44,12 +45,13 @@ export const inclineTemplate: Template = {
     const aUp = -g * sin - muK * g * cos;
     const aDown = -g * sin + muK * g * cos;
     const aFromRest = -Math.sign(sin) * g * (Math.abs(sin) - muK * cos);
+    const frictionPerMass = muK * g * cos;
 
     const decide = ({ u }: { s: number; u: number }): Phase => {
-      if (u > EPS) return { a: -g * sin - Math.sign(u) * muK * g * cos, label: '沿斜面向上运动', note: '重力分量与摩擦力均沿斜面向下' };
-      if (u < -EPS) return { a: -g * sin - Math.sign(u) * muK * g * cos, label: '沿斜面向下运动', note: '摩擦力沿斜面向上' };
+      if (u > EPS) return { a: aUp, frictionPerMass, label: '沿斜面正向运动', note: '滑动摩擦力与速度反向' };
+      if (u < -EPS) return { a: aDown, frictionPerMass, label: '沿斜面反向运动', note: '滑动摩擦力与速度反向' };
       if (Math.abs(sin) <= muS * cos + EPS) return { a: 0, static: true, label: '静止（静摩擦自锁）', note: '|tanθ| ≤ μ_s，静摩擦足以平衡重力分量' };
-      return { a: aFromRest, label: '由静止开始滑动', note: '|tanθ| > μ_s，静摩擦不足以维持静止' };
+      return { a: aFromRest, frictionPerMass, label: '由静止开始滑动', note: '|tanθ| > μ_s，静摩擦不足以维持静止' };
     };
 
     const track = runTrack({ s0, u0, length: L, decide });
@@ -178,12 +180,12 @@ export const inclineTemplate: Template = {
 
     return {
       ok: true,
-      solution: {
+      solution: withEnergy(scene, {
         template: 'incline-friction', sceneRev: scene.rev, tEnd: track.tEnd,
         stages: built.stages, answers, steps, formulas, samples: built.samples,
         flags: [...flags], evalAt: built.evalAt,
         events: track.events.map((e) => ({ kind: e.kind, t: e.t, label: e.label })),
-      },
+      }, { track }),
     };
   },
 };

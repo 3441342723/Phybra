@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { aiMode, MAX_IMAGE_BYTES, readProblem } from '../ai/client';
+import { PLATES_PROBLEM, type DemoKind } from '../ai/demo';
 import { describePath } from '../model/paths';
 import type { Action, Store } from '../state/store';
 
 export function AiPanel({ store, dispatch, onClose }: { store: Store; dispatch: (a: Action) => void; onClose: () => void }) {
   const [text, setText] = useState('倾角为 30° 的斜面长 5 m，静摩擦因数为 0.4，物体自斜面顶端由静止释放，求到达底端的时间与速度。');
   const [image, setImage] = useState<File | null>(null);
-  const [demo, setDemo] = useState<'incline' | 'flat'>('incline');
+  const [demo, setDemo] = useState<DemoKind>('incline');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const draft = store.draft;
@@ -58,9 +59,14 @@ export function AiPanel({ store, dispatch, onClose }: { store: Store; dispatch: 
             {aiMode === 'demo' && (
               <div className="row">
                 <label>演示样例</label>
-                <select value={demo} onChange={(e) => setDemo(e.target.value as any)}>
+                <select value={demo} onChange={(e) => {
+                  const kind = e.target.value as DemoKind;
+                  setDemo(kind);
+                  if (kind === 'plates') setText(PLATES_PROBLEM);
+                }}>
                   <option value="incline">斜面（故意缺少 μ_k）</option>
                   <option value="flat">平抛</option>
+                  <option value="plates">电磁学：平行板加速</option>
                 </select>
               </div>
             )}

@@ -4,6 +4,7 @@ import { buildTrack, dedupeNumbers, EPS, latexNum, positiveRoots, quadraticRoots
 import { runTrack, trackEndNote, TRACK_INCOMPLETE_NOTE, type Phase } from './alongTrack';
 import { supportLength } from '../model/geometry';
 import { issue, missing, type Template } from './template';
+import { withEnergy } from './energy';
 
 export const kinematicsTemplate: Template = {
   id: 'kinematics-1d',
@@ -17,7 +18,7 @@ export const kinematicsTemplate: Template = {
   solve(scene: Scene) {
     const body = scene.bodies[0];
     const sup = scene.supports.find((s) => s.id === body.attach!.support)!;
-    const contact = scene.contacts.find((c) => c.body === body.id);
+    const contact = scene.contacts.find((c) => c.body === body.id && c.support === sup.id);
     const blockers = [];
     const pending: Array<{ path: string; label: string }> = [];
     const bp = `bodies.${body.id}`;
@@ -40,7 +41,7 @@ export const kinematicsTemplate: Template = {
     const decide = ({ u }: { s: number; u: number }): Phase => {
       if (aGiven !== null) return { a: aGiven, label: '匀变速直线运动', note: '加速度为已知条件' };
       if (Math.abs(u) <= EPS) return { a: 0, static: true, label: '静止', note: '无驱动力，滑动停止后保持静止' };
-      return { a: -Math.sign(u) * muK * g, label: muK === 0 ? '匀速直线运动（光滑）' : '滑动摩擦减速', note: 'a = -sgn(v)·μ_k g' };
+      return { a: -Math.sign(u) * muK * g, frictionPerMass: muK * g, label: muK === 0 ? '匀速直线运动（光滑）' : '滑动摩擦减速', note: 'a = -sgn(v)·μ_k g' };
     };
     const track = runTrack({ s0, u0, length: L, decide });
     const incomplete = track.outcome === 'incomplete';
@@ -155,12 +156,12 @@ export const kinematicsTemplate: Template = {
 
     return {
       ok: true,
-      solution: {
+      solution: withEnergy(scene, {
         template: 'kinematics-1d', sceneRev: scene.rev, tEnd: track.tEnd,
         stages: built.stages, answers, steps, formulas, samples: built.samples,
         flags: [...flags], evalAt: built.evalAt,
         events: track.events.map((e) => ({ kind: e.kind, t: e.t, label: e.label })),
-      },
+      }, { track, prescribedAccel: aGiven ?? undefined }),
     };
   },
 };

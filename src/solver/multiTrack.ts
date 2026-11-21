@@ -5,6 +5,7 @@ import { fmt } from '../model/units';
 import { buildTrack, dedupeNumbers, EPS, latexNum, positiveRoots, quadraticRoots } from './common';
 import { runTrack, trackEndNote, TRACK_INCOMPLETE_NOTE, type Phase } from './alongTrack';
 import { issue, missing, type Template } from './template';
+import { withEnergy } from './energy';
 
 export const multiTrackTemplate: Template = {
   id: 'incline-friction',
@@ -64,6 +65,7 @@ export const multiTrackTemplate: Template = {
       if (Math.abs(u) > EPS) {
         return {
           a: -g * sin - Math.sign(u) * muK * g * cos,
+          frictionPerMass: muK * g * cos,
           label: `${name}：沿轨道${u > 0 ? '正向' : '反向'}滑动`,
           note: '重力沿轨分量与滑动摩擦共同决定加速度',
         };
@@ -73,6 +75,7 @@ export const multiTrackTemplate: Template = {
       }
       return {
         a: -Math.sign(sin) * g * (Math.abs(sin) - muK * cos),
+        frictionPerMass: muK * g * cos,
         label: `${name}：由静止开始滑动`,
         note: '静摩擦不足以维持静止',
       };
@@ -203,7 +206,7 @@ export const multiTrackTemplate: Template = {
 
     return {
       ok: true,
-      solution: {
+      solution: withEnergy(scene, {
         template, sceneRev: scene.rev, tEnd: result.tEnd,
         stages: built.stages, answers, steps,
         formulas: [
@@ -213,7 +216,15 @@ export const multiTrackTemplate: Template = {
         ],
         samples: built.samples, flags: [...flags], evalAt: built.evalAt,
         events: result.events.map((e) => ({ kind: e.kind, t: e.t, label: e.label })),
-      },
+      }, {
+        track: result,
+        prescribedAccel: aGiven ?? undefined,
+        geometryGap: track.segments.slice(1).some((seg, i) => {
+          const prev = track.segments[i];
+          return Math.hypot(seg.origin.x - (prev.origin.x + prev.length * prev.dir.x),
+            seg.origin.y - (prev.origin.y + prev.length * prev.dir.y)) > 1e-7;
+        }),
+      }),
     };
   },
 };

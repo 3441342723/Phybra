@@ -78,41 +78,68 @@ textarea { width: 100%; resize: vertical; }
 .row.selectable { cursor: pointer; border-radius: 6px; padding: 4px 6px; }
 .row.selectable:hover { background: #f3f4f6; }
 .row.selectable.active { background: #dbeafe; }
-.row-icon { width: 16px; text-align: center; }
-.row-main { flex: 1; }
+.row-icon { flex: 0 0 16px; text-align: center; }
+.row-main { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .row-sub { color: #6b7280; font-size: 12px; }
 .hint { color: #6b7280; font-size: 12px; line-height: 1.5; }
 .hint.error, .error { color: #b91c1c; }
 
-.canvas-wrap { flex: 1; position: relative; min-height: 220px; background: #fff; }
-.canvas-wrap svg { display: block; touch-action: none; user-select: none; }
+.canvas-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; background: #fff; }
+.canvas-area { flex: 1; position: relative; min-height: 0; overflow: hidden; }
+.canvas-area > svg { position: absolute; inset: 0; display: block; touch-action: none; user-select: none; }
 .tool-pan { cursor: grab; }
 .tool-block, .tool-projectile, .tool-horizontal, .tool-incline, .tool-measure { cursor: crosshair; }
 .canvas-status {
-  position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between;
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 10px;
   padding: 3px 10px; font-size: 11px; color: #6b7280; background: rgba(255, 255, 255, 0.85);
   pointer-events: none;
 }
+.canvas-status .notice { color: #b45309; font-weight: 600; }
 .grid { stroke: #f0f1f3; stroke-width: 1; }
 .grid-dot { fill: #cbd5e1; pointer-events: none; }
 .axis { stroke: #d4d7dc; stroke-width: 1.2; }
 .support-line { stroke: #4b5563; stroke-width: 3; }
 .hatch { stroke: #9ca3af; stroke-width: 1; }
-.obj-label { font-size: 11px; fill: #4b5563; }
+.canvas-labels { pointer-events: none; }
+.canvas-label { --label-ink: #334155; --label-border: #cbd5e1; }
+.canvas-label.label-event { --label-ink: #6d28d9; --label-border: #c4b5fd; }
+.canvas-label.label-moving { --label-ink: #92400e; --label-border: #fbbf24; }
+.canvas-label.label-measure { --label-ink: #0e7490; --label-border: #67e8f9; }
+.canvas-label.label-velocity { --label-ink: #047857; --label-border: #6ee7b7; }
+.canvas-label-box { fill: #fff; stroke: var(--label-border); }
+.canvas-label > line { stroke: var(--label-border); }
+.canvas-label > text { fill: var(--label-ink); }
 .body-block { fill: #93c5fd; stroke: #1d4ed8; stroke-width: 2; }
 .body-projectile { fill: #93c5fd; stroke: #1d4ed8; stroke-width: 2; }
-.selected .body-block, .selected .body-projectile { fill: #bfdbfe; stroke: #f59e0b; }
+.body-boat { fill: #fcd34d; stroke: #b45309; stroke-width: 2; }
+.body-circular { fill: #93c5fd; stroke: #1d4ed8; stroke-width: 2; }
+.selected .body-block, .selected .body-projectile, .selected .body-boat, .selected .body-circular { fill: #bfdbfe; stroke: #f59e0b; }
+.circle-track { fill: none; stroke: #94a3b8; stroke-width: 2; stroke-dasharray: 4 3; }
+.circle-center { fill: #64748b; }
+.river-bank { stroke: #4b5563; stroke-width: 3; }
+.flow-arrow { stroke: #0891b2; stroke-width: 2.5; }
+.resultant-arrow { stroke: #7c3aed; stroke-width: 2.5; }
 .selected .support-line { stroke: #f59e0b; }
 .handle { fill: #fff; stroke: #f59e0b; stroke-width: 2; cursor: move; }
 .handle.velocity { stroke: #059669; }
 .velocity-arrow { stroke: #059669; stroke-width: 2.5; marker-end: none; }
 .trajectory { fill: none; stroke: #7c3aed; stroke-width: 2; stroke-dasharray: 5 3; }
 .event-marker { fill: #7c3aed; }
-.event-label { font-size: 10px; fill: #7c3aed; }
 .initial-body { fill: none; stroke: #94a3b8; stroke-width: 1.5; stroke-dasharray: 4 3; }
-.moving-label { font-size: 11px; fill: #b45309; }
 .measure-line { stroke: #0891b2; stroke-width: 2; stroke-dasharray: 4 3; }
 .joint-marker { fill: #10b981; stroke: #047857; stroke-width: 1.5; }
+.field-region { fill: currentColor; fill-opacity: .10; stroke: currentColor; stroke-width: 1.5; cursor: move; }
+.selected-field { stroke-width: 2.75; stroke-dasharray: 5 3; }
+.field-glyph, .field-handle { fill: #fff; stroke: currentColor; stroke-width: 1.5; cursor: move; }
+.field-symbol { cursor: move; font-weight: 700; }
+.field-handle { stroke-width: 2; }
+.field-draft { stroke: #2563eb; fill: #fff; stroke-width: 2; pointer-events: none; }
+.physical-link { stroke: #475569; stroke-width: 3; cursor: move; }
+.rope-link { stroke-width: 2; stroke-dasharray: 4 2; }
+.link-anchor { fill: #fff; stroke: #475569; stroke-width: 2; cursor: move; }
+.selected-link .link-anchor, .selected-link .physical-link { stroke: #d97706; }
+.polygon-actions { position: absolute; z-index: 1; left: 8px; bottom: 44px; display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; }
+.field-control { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 7px; }
 
 .numfield { margin: 6px 0; }
 .numfield-head { display: flex; justify-content: space-between; align-items: center; }
@@ -134,7 +161,9 @@ textarea { width: 100%; resize: vertical; }
 .result-panel { background: #fff; }
 .result-head { padding: 6px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .result-body { padding: 0 14px 12px; }
-.answer-row { display: flex; gap: 10px; padding: 3px 0; align-items: baseline; flex-wrap: wrap; }
+.field-crossings { margin: 5px 0 10px; }
+.field-crossings button { display: block; margin-top: 4px; text-align: left; }
+.answer-row { display: flex; gap: 10px; padding: 3px 0; align-items: baseline; flex-wrap: wrap; overflow-wrap: anywhere; }
 .answer-label { color: #374151; min-width: 180px; }
 .answer-value { font-weight: 600; color: #111827; }
 .steps { margin-top: 8px; }
@@ -145,11 +174,19 @@ textarea { width: 100%; resize: vertical; }
 
 .bottom { background: #fff; border-top: 1px solid #e5e7eb; }
 .timeline { display: flex; align-items: center; gap: 8px; padding: 6px 12px; flex-wrap: wrap; }
+.timeline-stages { flex: 0 1 100%; min-width: 0; display: flex; gap: 4px; overflow-x: auto; padding: 1px 0 3px; }
+.timeline-stages .badge { flex: 0 0 auto; margin-right: 0; white-space: nowrap; }
 .time-slider { flex: 1; min-width: 140px; }
 .time-readout { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.playback-rate { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+.playback-rate input { width: 76px; }
 .charts { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.charts-tabs { display: flex; gap: 6px; padding: 0 12px 4px; align-items: center; }
+.charts-tabs { display: flex; flex-wrap: wrap; gap: 4px 6px; padding: 4px 8px; align-items: center; }
+.charts-tabs button { padding-inline: 6px; white-space: nowrap; }
+.chart-time { margin-left: auto; font-size: 11px; color: #92400e; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .chart-body { flex: 1; min-height: 0; }
+.chart-energy-note { margin: 0 8px 4px; }
+.energy-point-field > label { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 5px 0; }
 
 .modal-mask {
   position: fixed; inset: 0; background: rgba(17, 24, 39, 0.45);
@@ -178,7 +215,7 @@ textarea { width: 100%; resize: vertical; }
 .ai-mode-row { padding: 8px 12px 0; }
 .ai-panel .modal-body { flex: 1; min-height: 0; }
 
-.toolbar { position: relative; z-index: 100000; flex-wrap: nowrap; }
+.toolbar { position: relative; z-index: 100000; }
 .toolbar-menu { position: relative; flex-shrink: 0; }
 .toolbar-menu summary {
   list-style: none; cursor: pointer; user-select: none; padding: 5px 11px; border: 1px solid #d1d5db;
@@ -197,6 +234,14 @@ textarea { width: 100%; resize: vertical; }
 .view-menu label { padding: 4px 8px 0; color: #475569; }
 .view-menu select { margin: 0 8px; }
 .view-menu .hint { padding: 2px 8px 5px; max-width: 220px; }
+.toolbar-menu:last-child .menu-popover { right: 0; left: auto; }
+
+@media (max-width: 720px) {
+  .toolbar-menu { position: static; }
+  .toolbar-menu .menu-popover, .toolbar-menu:last-child .menu-popover {
+    left: 12px; right: 12px; min-width: 0; max-height: 45vh; overflow-y: auto;
+  }
+}
 
 .modal-mask { z-index: 200000; }
 

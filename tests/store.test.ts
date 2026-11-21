@@ -19,7 +19,7 @@ describe('编辑 / 播放 / 视图状态分离', () => {
     if (!r.ok) throw new Error('示例不可解');
     st = reducer(st, { type: 'formalResult', rev: st.present.rev, result: { solution: r.solution, report: null } });
     st = reducer(st, { type: 'play' });
-    st = reducer(st, { type: 'tick', t: 1.2, tEnd: 5 });
+    st = reducer(st, { type: 'tick', elapsed: 1.2, tEnd: 5 });
     const next = { ...st.present, gravity: 10, rev: st.present.rev + 1 };
     st = reducer(st, { type: 'apply', scene: next });
     expect(st.playback).toEqual({ mode: 'idle', t: 0 });
@@ -33,7 +33,7 @@ describe('编辑 / 播放 / 视图状态分离', () => {
     if (!result.ok) throw new Error('示例不可解');
     st = reducer(st, { type: 'formalResult', rev: st.present.rev, result: { solution: result.solution, report: null } });
     st = reducer(st, { type: 'play' });
-    st = reducer(st, { type: 'tick', t: 0.5, tEnd: result.solution.tEnd });
+    st = reducer(st, { type: 'tick', elapsed: 0.5, tEnd: result.solution.tEnd });
     const bodyId = st.present.bodies[0].id;
     st.present.bindings[`bodies.${bodyId}.vel.x`] = 'theta';
     st.present.bindings[`bodies.${bodyId}.vel.y`] = 'theta';

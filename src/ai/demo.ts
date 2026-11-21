@@ -1,8 +1,35 @@
-import { flatThrowExample, inclineExample } from '../model/factory';
+import { ELECTROMAGNETIC_EXAMPLES, flatThrowExample, inclineExample } from '../model/factory';
 import type { SceneDraft } from '../model/types';
 
+export type DemoKind = 'incline' | 'flat' | 'plates';
+export const PLATES_PROBLEM = '质量为 2 kg、电荷量为 +1 C 的小球从左板处静止释放。两板间距为 6 m，左板电势比右板高 12 V。不计重力和边缘效应，求小球到达右板的时间、速度和电场做功。';
+
 /** 本地演示草稿：不调用任何云端服务，仅用于验证"AI 草稿 → 审阅 → 替换可撤销"流程 */
-export function demoDraft(kind: 'incline' | 'flat', rawText: string): SceneDraft {
+export function demoDraft(kind: DemoKind, rawText: string): SceneDraft {
+  if (kind === 'plates') {
+    const scene = ELECTROMAGNETIC_EXAMPLES.find(example => example.id === 'parallel-plate-acceleration')!.build();
+    const body = 'bodies.' + scene.bodies[0].id;
+    const field = 'fields.' + scene.fields![0].id;
+    return {
+      source: { rawText: PLATES_PROBLEM, demo: true },
+      scene,
+      known: [
+        { path: body + '.mass', label: '质量', value: '2 kg', quote: '质量为 2 kg' },
+        { path: body + '.charge', label: '电荷量', value: '+1 C', quote: '电荷量为 +1 C' },
+        { path: body + '.vel', label: '初速度', value: '0 m/s', quote: '从左板处静止释放' },
+        { path: field + '.shape.width', label: '板间距', value: '6 m', quote: '两板间距为 6 m' },
+        { path: field + '.plates.voltage', label: '左板相对于右板的电压', value: '+12 V', quote: '左板电势比右板高 12 V' },
+      ],
+      assumed: [{
+        path: field + '.shape', label: '板间电场视为匀强', value: '沿 +x 方向', basis: '取向右为正，按题意忽略边缘效应和重力。',
+      }],
+      unknown: scene.asks.map(ask => ({
+        path: 'asks.' + ask.id, label: ask.kind === 'field_exit' ? '到达右板的时间和速度' : '到达右板前电场做功',
+      })),
+      uncertain: [],
+      warnings: ['演示模式：此草稿来自内置样例，并非 AI 识别结果'],
+    };
+  }
   if (kind === 'flat') {
     const scene = flatThrowExample();
     return {

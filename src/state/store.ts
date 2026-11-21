@@ -1,7 +1,8 @@
 import type { CheckReport, Scene, SceneDraft, Solution, Vec2 } from '../model/types';
 import type { SnapSettings } from '../model/snap';
 
-export type ToolId = 'select' | 'pan' | 'block' | 'projectile' | 'horizontal' | 'incline' | 'velocity' | 'measure';
+export type ToolId = 'select' | 'pan' | 'block' | 'ball' | 'rope' | 'rod' | 'incline' | 'velocity' | 'measure'
+  | 'uniform_gravity' | 'uniform_electric' | 'uniform_magnetic' | 'point_mass' | 'point_charge' | 'field_polygon';
 export type Camera = { scale: number; ox: number; oy: number };
 
 export type SolveSlot = {
@@ -22,15 +23,17 @@ export type Store = {
   snap: SnapSettings;
   measure: { a: Vec2 | null; b: Vec2 | null };
   playback: { mode: 'idle' | 'playing' | 'paused'; t: number };
+  playbackRate: number;
   preview: SolveSlot;
   formal: SolveSlot;
   draft: SceneDraft | null;
   confirmDelete: string | null;
+  notice: string | null;
 };
 
 const emptySlot = (): SolveSlot => ({ status: 'none', solution: null, report: null, forRev: -1 });
 
-export function initStore(scene: Scene, camera?: Camera, snap?: SnapSettings): Store {
+export function initStore(scene: Scene, camera?: Camera, snap?: SnapSettings, playbackRate = 1): Store {
   return {
     past: [], present: scene, future: [], gestureBase: null,
     tool: 'select', selection: null,
@@ -38,8 +41,10 @@ export function initStore(scene: Scene, camera?: Camera, snap?: SnapSettings): S
     snap: snap ?? { enabled: true, step: 0.5 },
     measure: { a: null, b: null },
     playback: { mode: 'idle', t: 0 },
+    playbackRate,
     preview: emptySlot(), formal: emptySlot(), draft: null,
     confirmDelete: null,
+    notice: null,
   };
 }
 
@@ -60,11 +65,13 @@ export type Action =
   | { type: 'formalResult'; result: { solution: Solution | null; report: CheckReport | null }; rev: number }
   | { type: 'play' }
   | { type: 'pause' }
-  | { type: 'tick'; t: number; tEnd: number }
+  | { type: 'playbackRate'; rate: number }
+  | { type: 'tick'; elapsed: number; tEnd: number }
   | { type: 'scrub'; t: number }
   | { type: 'resetPlayback' }
   | { type: 'setDraft'; draft: SceneDraft | null }
-  | { type: 'confirmDelete'; id: string | null };
+  | { type: 'confirmDelete'; id: string | null }
+  | { type: 'notice'; text: string | null };
 
 function physicsChanged(state: Store, scene: Scene): Store {
   return {
@@ -149,8 +156,11 @@ export function reducer(state: Store, action: Action): Store {
       return { ...state, playback: { ...state.playback, mode: 'playing' } };
     case 'pause':
       return { ...state, playback: { ...state.playback, mode: 'paused' } };
+    case 'playbackRate':
+      return isPlaybackRate(action.rate) ? { ...state, playbackRate: action.rate } : state;
     case 'tick': {
-      const t = Math.min(action.t, action.tEnd);
+      if (state.playback.mode !== 'playing') return state;
+      const t = Math.min(state.playback.t + action.elapsed * state.playbackRate, action.tEnd);
       return { ...state, playback: { t, mode: t >= action.tEnd ? 'paused' : 'playing' } };
     }
     case 'scrub':
@@ -161,9 +171,15 @@ export function reducer(state: Store, action: Action): Store {
       return { ...state, draft: action.draft };
     case 'confirmDelete':
       return { ...state, confirmDelete: action.id };
+    case 'notice':
+      return { ...state, notice: action.text };
     default:
       return state;
   }
+}
+
+export function isPlaybackRate(rate: unknown): rate is number {
+  return typeof rate === 'number' && Number.isFinite(rate) && rate > 0;
 }
 
 /** 动画与曲线只读这里：优先实时预览，其次正式结果，绝不各自重算 */

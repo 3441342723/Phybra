@@ -1,4 +1,4 @@
-import { baseScene, makeAsk, makeBlock, makeContact, makeProjectile, makeSupport } from '../src/model/factory';
+import { baseScene, makeAsk, makeBlock, makeBoat, makeCircular, makeContact, makeProjectile, makeSupport } from '../src/model/factory';
 import type { Answer, Scene, Solution } from '../src/model/types';
 import { solve } from '../src/solver';
 
@@ -59,5 +59,30 @@ export function kin(opts: {
   sc.bodies = [block];
   sc.contacts = [makeContact(block.id, sup.id, opts.mu_k ?? null, opts.mu_k ?? null)];
   sc.asks = opts.asks ?? [makeAsk('at_time', { t: 1 })];
+  return sc;
+}
+
+export function boat(opts: {
+  x?: number; y?: number; bvx?: number; bvy?: number; fx?: number; fy?: number;
+  width?: number; g?: number; asks?: Scene['asks'];
+}): Scene {
+  const sc = baseScene('渡河测试');
+  sc.gravity = opts.g ?? 10;
+  const b = makeBoat(opts.x ?? 0, opts.y ?? 0, opts.bvx ?? 0, opts.bvy ?? 4, opts.fx ?? 3, opts.width ?? 20);
+  b.flow = { x: opts.fx ?? 3, y: opts.fy ?? 0 };
+  sc.bodies = [b];
+  sc.asks = opts.asks ?? [];
+  return sc;
+}
+
+export function circular(opts: {
+  cx?: number; cy?: number; radius?: number; omega?: number; phase?: number;
+  mass?: number | null; g?: number; asks?: Scene['asks'];
+}): Scene {
+  const sc = baseScene('圆周测试');
+  sc.gravity = opts.g ?? 10;
+  const b = makeCircular(opts.cx ?? 0, opts.cy ?? 0, opts.radius ?? 5, opts.omega ?? 1, opts.phase ?? 0, opts.mass === undefined ? 2 : opts.mass);
+  sc.bodies = [b];
+  sc.asks = opts.asks ?? [];
   return sc;
 }

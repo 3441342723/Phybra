@@ -1,15 +1,15 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { ELECTROMAGNETIC_EXAMPLES, EXAMPLES, flatThrowExample, inclineExample, kinematicsExample } from '../src/model/factory';
 import { Canvas } from '../src/ui/Canvas';
 import { initStore, reducer } from '../src/state/store';
-import { EXAMPLES, flatThrowExample, inclineExample } from '../src/model/factory';
 import { setAt } from '../src/model/paths';
 import { solve } from '../src/solver';
 import { ok } from './helpers';
 
 describe('一致性与统一模型', () => {
-  it.each(EXAMPLES)('$title 的物体图形跟随播放结果，重置恢复且不改初始条件', ({ build }) => {
+  it.each([...EXAMPLES, ...ELECTROMAGNETIC_EXAMPLES])('$title 的物体图形跟随播放结果，重置恢复且不改初始条件', ({ build }) => {
     const scene = build();
     const original = structuredClone(scene);
     const solution = ok(solve(scene));
@@ -22,12 +22,12 @@ describe('一致性与统一模型', () => {
       store: state, solution, dispatch: () => {},
       edit: { begin() {}, transient() {}, end() {}, apply() {} },
     }));
-    const markup = render(store);
+    const markup = render(store).match(/<g class="moving-body"[^>]*>.*?<\/g>/)?.[0] ?? '';
     if (scene.bodies[0].kind === 'block') {
       const body = markup.match(/<rect[^>]*class="body-block"[^>]*>/)?.[0];
       expect(body).toContain(`translate(${expectedX} ${expectedY})`);
     } else {
-      const body = markup.match(/<circle[^>]*class="body-projectile"[^>]*>/)?.[0];
+      const body = markup.match(/<circle[^>]*class="body-(?:projectile|circular)"[^>]*>/)?.[0];
       expect(body).toContain(`cx="${expectedX}"`);
       expect(body).toContain(`cy="${expectedY}"`);
     }
@@ -45,8 +45,8 @@ describe('一致性与统一模型', () => {
     expect((markup.match(/class="(?:grid|axis)"/g) ?? []).length).toBeLessThan(200);
   });
 
-  it('四个示例场景均可求解', () => {
-    for (const ex of EXAMPLES) {
+  it('力学和电磁学示例均可求解', () => {
+    for (const ex of [...EXAMPLES, ...ELECTROMAGNETIC_EXAMPLES]) {
       const r = solve(ex.build());
       expect(r.ok, ex.title).toBe(true);
     }
@@ -72,6 +72,16 @@ describe('一致性与统一模型', () => {
     direct.bindings = {};
     const unbound = ok(solve(direct));
     expect(bound.answers.find((a) => a.id === 'end_t')!.value).toBeCloseTo(unbound.answers.find((a) => a.id === 'end_t')!.value!, 12);
+  });
+
+  it('斜面工具创建的 0° 支撑面与旧版水平面求解一致', () => {
+    const scene=kinematicsExample();
+    const before=ok(solve(scene));
+    scene.supports[0].kind='incline';
+    const after=ok(solve(scene));
+    expect(after.template).toBe('kinematics-1d');
+    expect(after.evalAt(2)).toEqual(before.evalAt(2));
+    expect(after.tEnd).toBe(before.tEnd);
   });
 
   it('修改绑定参数只改参数值即可改变结果', () => {

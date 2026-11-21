@@ -1,6 +1,6 @@
 import { EPS, quadraticRoots, type StageEval } from './common';
 
-export type Phase = { a: number; label: string; note?: string; static?: boolean };
+export type Phase = { a: number; label: string; note?: string; static?: boolean; frictionPerMass?: number };
 
 export type TrackEvent = { kind: 'rest' | 'end_of_support' | 'junction'; t: number; s: number; label: string };
 type TrackOutcome = 'end_of_support' | 'stationary' | 'incomplete';
@@ -48,7 +48,7 @@ export function runTrack(opts: {
     };
     stages.push({
       stage: { label: phase.label, t0: t, t1: end, note: phase.note },
-      s0: start.s, u0: start.u, a, eval: evalStage,
+      s0: start.s, u0: start.u, a, frictionPerMass: phase.frictionPerMass, eval: evalStage,
     });
     ({ s, u } = evalStage(duration));
     t = end;

@@ -1,14 +1,31 @@
 import type { Scene } from '../model/types';
-import type { Camera } from './store';
+import { isPlaybackRate, type Camera } from './store';
 import type { SnapSettings } from '../model/snap';
 
 const SCENE_KEY = 'phy.scene.v2';
 const VIEW_KEY = 'phy.view.v1';
 const SNAP_KEY = 'phy.snap.v1';
+const RATE_KEY = 'phy.playbackRate.v1';
+
+export function loadPlaybackRate(): number {
+  try {
+    const rate = Number(localStorage.getItem(RATE_KEY));
+    return isPlaybackRate(rate) ? rate : 1;
+  } catch {
+    return 1;
+  }
+}
+
+export function savePlaybackRate(rate: number): void {
+  try { localStorage.setItem(RATE_KEY, String(rate)); } catch { /* optional preference */ }
+}
 
 export function isScene(value: unknown): value is Scene {
   const sc = value as Scene;
-  return !!sc && sc.version === 2 && Array.isArray(sc.bodies) && Array.isArray(sc.supports) && Array.isArray(sc.contacts) && Array.isArray(sc.asks) && Array.isArray(sc.params) && typeof sc.bindings === 'object';
+  return !!sc && sc.version === 2 && Array.isArray(sc.bodies) && Array.isArray(sc.supports) && Array.isArray(sc.contacts) && Array.isArray(sc.asks) && Array.isArray(sc.params) && typeof sc.bindings === 'object'
+    && (sc.fields === undefined || Array.isArray(sc.fields) && sc.fields.every(f => f && typeof f.id === 'string' && f.shape && f.position && f.vector
+      && (f.shape.kind !== 'polygon' || Array.isArray(f.shape.vertices)) && (f.shape.kind !== 'rect' && f.shape.kind !== 'circle' || !!f.shape.center)))
+    && (sc.links === undefined || Array.isArray(sc.links) && sc.links.every(l => l && typeof l.id === 'string' && l.anchor));
 }
 
 export function loadScene(): Scene | null {

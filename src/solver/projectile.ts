@@ -1,7 +1,9 @@
-import type { Answer, DerivationStep, Sample, Scene } from '../model/types';
+import type { Answer, DerivationStep, Sample, Scene, Support } from '../model/types';
 import { fmt } from '../model/units';
+import { supportDir, supportLength } from '../model/geometry';
 import { dedupeNumbers, EPS, latexNum, positiveRoots, quadraticRoots } from './common';
 import { issue, missing, type Template } from './template';
+import { withEnergy } from './energy';
 
 export const projectileTemplate: Template = {
   id: 'projectile',
@@ -38,19 +40,48 @@ export const projectileTemplate: Template = {
 
     const disc = vy * vy + 2 * g * y0;
     const canLand = y0 > 0 || vy > 0;
-    const tLand = canLand && disc >= 0 ? (vy + Math.sqrt(disc)) / g : null;
+    const tGround = canLand && disc >= 0 ? (vy + Math.sqrt(disc)) / g : null;
     const tApex = vy > 0 ? vy / g : null;
+
+    // 抛体与斜面联动：求抛物线与场景内各斜面段的首个交点（取段内最小正根）
+    let tHit: number | null = null;
+    let hitSup: Support | null = null;
+    let hitPoint: { x: number; y: number } | null = null;
+    for (const sup of scene.supports) {
+      if (sup.angleDeg === null || sup.length === null || (sup.angleDeg === 0 && sup.a.y === 0)) continue;
+      const d = supportDir(sup);
+      if (Math.abs(d.x) < EPS) continue;
+      const tan = d.y / d.x;
+      const ax = sup.a.x;
+      const ay = sup.a.y;
+      const roots = positiveRoots(quadraticRoots(0.5 * g, tan * vx - vy, ay - y0 + tan * (x0 - ax)), tGround ?? Infinity);
+      for (const t of roots) {
+        const x = x0 + vx * t;
+        const y = y0 + vy * t - 0.5 * g * t * t;
+        const along = (x - ax) * d.x + (y - ay) * d.y;
+        if (along < -1e-7 || along > supportLength(sup) + 1e-7) continue;
+        if (tHit === null || t < tHit) {
+          tHit = t;
+          hitSup = sup;
+          hitPoint = { x, y };
+        }
+        break;
+      }
+    }
+    const tLand = tHit !== null ? null : tGround;
     const maxAskTime = Math.max(0, ...scene.asks.map((a) => a.t ?? 0));
-    const tEnd = tLand ?? Math.max(3, tApex ? 2 * tApex : 0, maxAskTime);
+    const tEnd = tHit ?? tGround ?? Math.max(3, tApex ? 2 * tApex : 0, maxAskTime);
 
     const evalAt = (time: number): Sample => {
       const t = Math.min(Math.max(time, 0), tEnd);
       const x = x0 + vx * t;
-      const y = y0 + vy * t - 0.5 * g * t * t;
+      let y = y0 + vy * t - 0.5 * g * t * t;
+      if (tGround !== null && Math.abs(t - tGround) < EPS) y = 0;
       return { t, x, y, vx, vy: vy - g * t, s: x - x0 };
     };
     const times = Array.from({ length: 401 }, (_, i) => (tEnd * i) / 400);
-    if (tLand !== null) times.push(tLand);
+    if (tHit !== null) times.push(tHit);
+    else if (tGround !== null) times.push(tGround);
     if (tApex !== null) times.push(Math.min(tApex, tEnd));
     const samples = dedupeNumbers(times).map(evalAt);
 
@@ -92,7 +123,24 @@ export const projectileTemplate: Template = {
       formulas.push({ label: '落地时间', latex: 't=\\frac{v_y+\\sqrt{v_y^2+2 g y_0}}{g}' });
     }
 
-    if (tApex !== null) {
+    if (tHit !== null && hitPoint && hitSup) {
+      const hitVy = vy - g * tHit;
+      answers.push(
+        { id: 'hit_t', label: `落到「${hitSup.name}」的时间`, value: tHit, unit: 's' },
+        { id: 'hit_x', label: '落点 x', value: hitPoint.x, unit: 'm' },
+        { id: 'hit_y', label: '落点 y', value: hitPoint.y, unit: 'm' },
+        { id: 'hit_v', label: '落到斜面时速度大小', value: Math.hypot(vx, hitVy), unit: 'm/s', note: `水平分量 ${fmt(vx)} m/s，竖直分量 ${fmt(hitVy)} m/s` },
+      );
+      steps.push({
+        title: '落到斜面（抛物线与斜面直线求交）',
+        formula: 'y_0+v_y t-\\tfrac{1}{2}g t^2=y_a+\\tan\\theta\\,(x_0+v_x t-x_a)',
+        substitution: `\\tfrac{1}{2}g t^2+(\\tan\\theta\\,v_x-v_y)t+(y_a-y_0+\\tan\\theta(x_0-x_a))=0 \\Rightarrow t=${latexNum(tHit)}\\ \\mathrm{s}`,
+        note: `斜面倾角 θ=${fmt(hitSup.angleDeg!)}°；取落在斜面段内的最小正根，落到斜面后运动结束。`,
+      });
+      formulas.push({ label: '落斜面时间', latex: 'y_0+v_y t-\\tfrac{1}{2}g t^2=y_a+\\tan\\theta(x_0+v_x t-x_a)' });
+    }
+
+    if (tApex !== null && tApex <= tEnd + EPS) {
       const hMax = y0 + (vy * vy) / (2 * g);
       answers.push(
         { id: 'apex_t', label: '到达最高点时间', value: tApex, unit: 's' },
@@ -159,7 +207,7 @@ export const projectileTemplate: Template = {
 
     return {
       ok: true,
-      solution: {
+      solution: withEnergy(scene, {
         template: 'projectile', sceneRev: scene.rev, tEnd,
         stages: [{ label: '自由飞行', t0: 0, t1: tEnd }],
         answers, steps, formulas, samples,
@@ -167,9 +215,10 @@ export const projectileTemplate: Template = {
         evalAt,
         events: [
           ...(tApex !== null && tApex <= tEnd ? [{ kind: 'apex', t: tApex, label: '最高点' }] : []),
+          ...(tHit !== null ? [{ kind: 'hit_support', t: tHit, label: '落到斜面' }] : []),
           ...(tLand !== null ? [{ kind: 'landing', t: tLand, label: '落地' }] : []),
         ],
-      },
+      }),
     };
   },
 };
