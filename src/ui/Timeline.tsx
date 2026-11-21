@@ -34,9 +34,13 @@ export function Timeline({ store, dispatch, solution }: { store: Store; dispatch
       />
       <span className="time-readout">t = {fmt(t)} / {fmt(tEnd)} s</span>
       <span className="hint">拖动时间轴只改变观察时刻，不修改初始条件</span>
-      {solution?.stages.map((s) => (
-        <span key={s.label + s.t0} className="badge" title={s.note}>{s.label} [{fmt(s.t0)}, {fmt(s.t1)}]s</span>
-      ))}
+      {!!solution?.stages.length && (
+        <div className="timeline-stages" role="region" aria-label="运动阶段" tabIndex={0}>
+          {solution.stages.map((s) => (
+            <span key={s.label + s.t0} className="badge" title={s.note}>{s.label} [{fmt(s.t0)}, {fmt(s.t1)}]s</span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Body, Scene, Solution, Support, Vec2 } from '../model/types';
+import type { Body, Scene, Solution, Vec2 } from '../model/types';
 import { bodyWorld, nearestSupport, projectToSupport, supportDir, supportEnd, supportLength } from '../model/geometry';
 import { makeAsk, makeBlock, makeContact, makeProjectile, makeSupport } from '../model/factory';
 import { withField } from '../state/editing';
 import { snapPoint, snapValue } from '../model/snap';
 import type { Action, Camera, Store } from '../state/store';
+import { CanvasLabels, labelObstacle, type CanvasLabel } from './CanvasLabels';
 
 export type Edit = {
   begin: () => void;
@@ -257,6 +258,12 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
 
   const trajectory = solution ? solution.samples.map((st) => w2s({ x: st.x, y: st.y })) : [];
   const moving = solution && (store.playback.t > 0 || store.playback.mode === 'playing') ? solution.evalAt(store.playback.t) : null;
+  const movingPoint = moving ? w2s(moving) : null;
+  const movingText = moving ? `t=${moving.t.toFixed(2)} s` : '';
+  const measurement = store.measure.a && store.measure.b ? {
+    a: w2s(store.measure.a), b: w2s(store.measure.b),
+    text: `${dist(store.measure.a, store.measure.b).toFixed(3)} m`,
+  } : null;
   const joints: Vec2[] = [];
   for (let i = 0; i < scene.supports.length; i++) {
     for (let j = i + 1; j < scene.supports.length; j++) {
@@ -268,8 +275,58 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
     }
   }
 
+  const mid = (a: Vec2, b: Vec2) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const supports = scene.supports.map((sup) => ({
+    sup, a: w2s(sup.a), b: w2s(supportEnd(sup)), selected: store.selection === sup.id,
+    text: `${sup.name}${sup.kind === 'incline' ? ` θ=${sup.angleDeg ?? '?'}°` : ''} L=${sup.length ?? '?'} m`,
+  }));
+  const bodies = scene.bodies.flatMap((body) => {
+    const p = bodyScreen(body);
+    if (!p) return [];
+    const sup = body.attach ? scene.supports.find((s) => s.id === body.attach!.support) : null;
+    const selected = store.selection === body.id;
+    const tip = selected || store.tool === 'velocity' ? velocityTip(body) : null;
+    return [{ body, p, selected, tip, angle: -(sup?.angleDeg ?? 0) }];
+  });
+  const eventGroups: Array<{ key: string; p: Vec2; texts: string[] }> = [];
+  solution?.events.forEach((ev) => {
+    const p = w2s(solution.evalAt(ev.t));
+    const text = `${ev.label} t=${ev.t.toFixed(2)} s`;
+    const group = eventGroups.find((g) => dist(g.p, p) < 8);
+    if (group) group.texts.push(text);
+    else eventGroups.push({ key: `${ev.kind}-${ev.t}`, p, texts: [text] });
+  });
+
+  const jointPoints = joints.map(w2s);
+  const labels: CanvasLabel[] = [];
+  const obstacles = jointPoints.map((p) => labelObstacle(p, 6));
+  for (const { sup, a, b, selected, text } of supports) {
+    labels.push({ id: sup.id, at: mid(a, b), text, tone: 'object', priority: selected ? 4 : 0 });
+    if (selected) obstacles.push(labelObstacle(a, 8), labelObstacle(b, 8));
+  }
+  for (const { body, p, selected, tip } of bodies) {
+    labels.push({ id: body.id, at: p, text: body.name, tone: 'object', priority: selected ? 4 : 1 });
+    obstacles.push(labelObstacle(p, body.kind === 'block' ? 24 : 13));
+    if (tip) {
+      obstacles.push(labelObstacle(tip, 8));
+      labels.push({ id: `velocity-${body.id}`, at: tip, text: 'v', tone: 'velocity', priority: 3 });
+    }
+  }
+  for (const { key, p, texts } of eventGroups) {
+    obstacles.push(labelObstacle(p, 7));
+    labels.push({ id: `event-${key}`, at: p, text: texts.length > 1 ? `${texts[0]} · +${texts.length - 1}` : texts[0], tone: 'event', priority: 2 });
+  }
+  if (movingPoint) {
+    obstacles.push(labelObstacle(movingPoint, 10));
+    labels.push({ id: 'moving', at: movingPoint, text: movingText, tone: 'moving', priority: 5 });
+  }
+  if (measurement) {
+    labels.push({ id: 'measurement', at: mid(measurement.a, measurement.b), text: measurement.text, tone: 'measure', priority: 5 });
+  }
+
   return (
-    <div className="canvas-wrap" ref={ref}>
+    <div className="canvas-wrap">
+      <div className="canvas-area" ref={ref}>
       <svg
         width={size.w}
         height={size.h}
@@ -289,22 +346,10 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
         {trajectory.length > 1 && (
           <polyline points={trajectory.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')} className="trajectory" />
         )}
-        {solution?.events.map((ev) => {
-          const st = solution.evalAt(ev.t);
-          const p = w2s(st);
-          return (
-            <g key={`${ev.kind}${ev.t}`}>
-              <rect x={p.x - 4} y={p.y - 4} width={8} height={8} transform={`rotate(45 ${p.x} ${p.y})`} className="event-marker" />
-              <text x={p.x + 8} y={p.y - 8} className="event-label">{ev.label} t={ev.t.toFixed(2)}s</text>
-            </g>
-          );
-        })}
-        {scene.supports.map((sup: Support) => {
-          const a = w2s(sup.a);
-          const b = w2s(supportEnd(sup));
-          const selected = store.selection === sup.id;
+        {supports.map(({ sup, a, b, selected, text }) => {
           return (
             <g key={sup.id} className={selected ? 'selected' : ''}>
+              <title>{text}</title>
               <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="support-line" />
               {Array.from({ length: Math.floor(supportLength(sup) * 2) }, (_, i) => {
                 const s = (i + 0.5) / 2;
@@ -312,9 +357,6 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
                 const p = w2s({ x: sup.a.x + d.x * s, y: sup.a.y + d.y * s });
                 return <line key={i} x1={p.x} y1={p.y} x2={p.x - d.y * 6} y2={p.y - d.x * 6} className="hatch" />;
               })}
-              <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 12} className="obj-label">
-                {sup.name}{sup.kind === 'incline' ? ` θ=${sup.angleDeg ?? '?'}°` : ''} L={sup.length ?? '?'}m
-              </text>
               {selected && (
                 <>
                   <circle cx={a.x} cy={a.y} r={7} className="handle" />
@@ -324,24 +366,15 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
             </g>
           );
         })}
-        {joints.map((p, i) => {
-          const sp = w2s(p);
-          return <circle key={`joint${i}`} cx={sp.x} cy={sp.y} r={5} className="joint-marker" />;
-        })}
-        {scene.bodies.map((body: Body) => {
-          const p = bodyScreen(body);
-          if (!p) return null;
-          const sup = body.attach ? scene.supports.find((s) => s.id === body.attach!.support) : null;
-          const angle = sup ? -(sup.angleDeg ?? 0) : 0;
-          const selected = store.selection === body.id;
-          const tip = velocityTip(body);
+        {jointPoints.map((p, i) => <circle key={`joint${i}`} cx={p.x} cy={p.y} r={5} className="joint-marker" />)}
+        {bodies.map(({ body, p, selected, tip, angle }) => {
           return (
             <g key={body.id} className={selected ? 'selected' : ''}>
-              {(selected || store.tool === 'velocity') && tip && (
+              <title>{body.name}</title>
+              {tip && (
                 <>
                   <line x1={p.x} y1={p.y} x2={tip.x} y2={tip.y} className="velocity-arrow" />
-                  <circle cx={tip.x} cy={tip.y} r={7} className="handle velocity" />
-                  <text x={tip.x + 10} y={tip.y} className="obj-label">v</text>
+                  <circle cx={tip.x} cy={tip.y} r={7} className="handle velocity"><title>初速度</title></circle>
                 </>
               )}
               {body.kind === 'block' ? (
@@ -349,27 +382,25 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
               ) : (
                 <circle cx={p.x} cy={p.y} r={12} className="body-projectile" />
               )}
-              <text x={p.x + 20} y={p.y + 22} className="obj-label">{body.name}</text>
             </g>
           );
         })}
-        {moving && (
-          <g>
-            <circle cx={w2s(moving).x} cy={w2s(moving).y} r={9} className="moving-marker" />
-            <text x={w2s(moving).x + 12} y={w2s(moving).y - 12} className="moving-label">
-              t={moving.t.toFixed(2)}s
-            </text>
-          </g>
+        {movingPoint && (
+          <circle cx={movingPoint.x} cy={movingPoint.y} r={9} className="moving-marker"><title>{movingText}</title></circle>
         )}
-        {store.measure.a && store.measure.b && (
-          <g>
-            <line x1={w2s(store.measure.a).x} y1={w2s(store.measure.a).y} x2={w2s(store.measure.b).x} y2={w2s(store.measure.b).y} className="measure-line" />
-            <text x={(w2s(store.measure.a).x + w2s(store.measure.b).x) / 2} y={(w2s(store.measure.a).y + w2s(store.measure.b).y) / 2 - 8} className="obj-label">
-              {Math.hypot(store.measure.a.x - store.measure.b.x, store.measure.a.y - store.measure.b.y).toFixed(3)} m（仅测量，不影响物理）
-            </text>
-          </g>
+        {eventGroups.map(({ key, p, texts }) => (
+          <rect key={key} x={p.x - 4} y={p.y - 4} width={8} height={8} transform={`rotate(45 ${p.x} ${p.y})`} className="event-marker">
+            <title>{texts.join('\n')}</title>
+          </rect>
+        ))}
+        {measurement && (
+          <line x1={measurement.a.x} y1={measurement.a.y} x2={measurement.b.x} y2={measurement.b.y} className="measure-line">
+            <title>{measurement.text}（仅测量，不影响物理）</title>
+          </line>
         )}
+        <CanvasLabels labels={labels} obstacles={obstacles} size={size} />
       </svg>
+      </div>
       <div className="canvas-status">
         <span>{store.snap.enabled ? '吸附' : '不吸附'} {store.snap.step} m · 点阵 {dotStep} m · 滚轮缩放 · 空白处拖动平移</span>
         <span>{store.tool === 'measure' ? '测量：点击两点' : store.tool === 'select' ? '选中对象后可拖动控制柄' : `当前工具：${store.tool}`}</span>

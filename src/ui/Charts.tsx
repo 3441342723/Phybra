@@ -27,6 +27,7 @@ export function Charts({ solution, t }: { solution: Solution | null; t: number }
       return;
     }
     const samples = solution.samples;
+    const currentTime = Math.min(t, solution.tEnd);
     const posSeries = solution.template === 'projectile'
       ? [
           { name: 'x (m)', data: samples.map((s) => [s.t, s.x]) },
@@ -42,27 +43,35 @@ export function Charts({ solution, t }: { solution: Solution | null; t: number }
       : solution.template === 'incline-friction'
         ? [{ name: '沿面速度 u (m/s)', data: samples.map((s) => [s.t, s.u ?? 0]) }]
         : [{ name: '速度 v (m/s)', data: samples.map((s) => [s.t, s.vx]) }];
+    const curves = mode === 'pos' ? posSeries : velSeries;
     chart.current.setOption(
       {
         animation: false,
-        grid: { left: 56, right: 16, top: 32, bottom: 28 },
-        legend: { top: 0, textStyle: { fontSize: 11 } },
-        tooltip: { trigger: 'axis' },
-        xAxis: { type: 'value', name: 't/s', min: 0, max: solution.tEnd },
-        yAxis: { type: 'value', scale: true },
-        series: (mode === 'pos' ? posSeries : velSeries).map((s) => ({
-          ...s,
-          type: 'line',
-          showSymbol: false,
-          lineStyle: { width: 2 },
-          markLine: {
+        grid: { left: 8, right: 14, top: 25, bottom: 22, containLabel: true },
+        legend: { type: 'scroll', data: curves.map((s) => s.name), left: 5, right: 5, top: 0, textStyle: { fontSize: 11 } },
+        tooltip: { trigger: 'axis', confine: true },
+        xAxis: { type: 'value', name: 't / s', nameLocation: 'middle', nameGap: 24, min: 0, max: solution.tEnd || 1, axisLabel: { hideOverlap: true } },
+        yAxis: { type: 'value', scale: true, axisLabel: { hideOverlap: true } },
+        series: [
+          ...curves.map((s) => ({
+            ...s,
+            type: 'line' as const,
+            showSymbol: samples.length === 1,
+            lineStyle: { width: 2 },
+          })),
+          ...(solution.tEnd > 0 ? [{
+            type: 'line' as const,
+            data: [],
             silent: true,
-            symbol: 'none',
-            label: { formatter: `t=${t.toFixed(2)}s`, position: 'insideEndTop' },
-            lineStyle: { color: '#d97706', type: 'dashed' },
-            data: [{ xAxis: t }],
-          },
-        })),
+            markLine: {
+              silent: true,
+              symbol: 'none',
+              label: { show: false },
+              lineStyle: { color: '#d97706', type: 'dashed' as const },
+              data: [{ xAxis: currentTime }],
+            },
+          }] : []),
+        ],
       },
       { notMerge: true },
     );
@@ -73,7 +82,9 @@ export function Charts({ solution, t }: { solution: Solution | null; t: number }
       <div className="charts-tabs">
         <button className={mode === 'pos' ? 'active' : ''} onClick={() => setMode('pos')}>位置–时间</button>
         <button className={mode === 'vel' ? 'active' : ''} onClick={() => setMode('vel')}>速度–时间</button>
-        <span className="hint">{solution ? '曲线与动画、推导共用同一次求解采样' : '条件完整后显示曲线'}</span>
+        {solution
+          ? <span className="chart-time">t = {Math.min(t, solution.tEnd).toFixed(2)} s</span>
+          : <span className="hint">条件完整后显示曲线</span>}
       </div>
       <div className="chart-body" ref={ref} />
     </div>
