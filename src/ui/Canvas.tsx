@@ -4,9 +4,11 @@ import { bodyWorld, nearestSupport, projectToSupport, supportDir, supportEnd, su
 import { makeAsk, makeBall, makeBlock, makeContact, makeField, makeLink, makeSupport } from '../model/factory';
 import { FIELD_COLORS, FIELD_LABELS, hasGradient, shapeCenter, shapeVertices, translateShape, validPolygon } from '../model/fields';
 import { resolveBindings } from '../model/paths';
+import { fmt } from '../model/units';
 import { FieldLayer } from './FieldLayer';
 import { withField } from '../state/editing';
 import { snapPoint, snapValue } from '../model/snap';
+import { buildSurfaceTrack, trackSegmentAt } from '../model/track';
 import type { Action, Camera, Store } from '../state/store';
 import { CanvasLabels, labelObstacle, type CanvasLabel } from './CanvasLabels';
 
@@ -37,10 +39,17 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
   const scene = store.present;
   const cam = store.camera;
   const sceneFields = scene.fields ?? [];
-  const visibleFields = useMemo(() => scene.fields?.length ? resolveBindings(scene).fields! : [], [scene]);
   const links = scene.links ?? [];
+  const resolved = useMemo(() => resolveBindings(scene), [scene]);
+  const visibleFields = resolved.fields ?? [];
 
   useEffect(() => { if (store.tool !== 'field_polygon') setPolygon([]); }, [store.tool]);
+  const track = useMemo(() => {
+    const attached = resolved.bodies[0]?.attach;
+    if (!solution || !attached) return null;
+    const built = buildSurfaceTrack(resolved, attached.support);
+    return built.segments.length ? built : null;
+  }, [resolved, solution]);
 
   useEffect(() => {
     if (!ref.current) return;
@@ -324,20 +333,23 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
   const grid: React.ReactNode[] = [];
   const topLeft = s2w({ x: 0, y: 0 });
   const bottomRight = s2w({ x: size.w, y: size.h });
-  for (let x = Math.floor(topLeft.x); x <= Math.ceil(bottomRight.x); x++) {
-    const a = w2s({ x, y: 0 });
-    grid.push(<line key={`gx${x}`} x1={a.x} y1={0} x2={a.x} y2={size.h} className={x === 0 ? 'axis' : 'grid'} />);
+  let gridStep = 1;
+  while (gridStep * cam.scale < 20) gridStep *= 2;
+  for (let i = Math.floor(topLeft.x / gridStep); i <= Math.ceil(bottomRight.x / gridStep); i++) {
+    const a = w2s({ x: i * gridStep, y: 0 });
+    grid.push(<line key={`gx${i}`} x1={a.x} y1={0} x2={a.x} y2={size.h} className={i === 0 ? 'axis' : 'grid'} />);
   }
-  for (let y = Math.floor(bottomRight.y); y <= Math.ceil(topLeft.y); y++) {
-    const a = w2s({ x: 0, y });
-    grid.push(<line key={`gy${y}`} x1={0} y1={a.y} x2={size.w} y2={a.y} className={y === 0 ? 'axis' : 'grid'} />);
+  for (let i = Math.floor(bottomRight.y / gridStep); i <= Math.ceil(topLeft.y / gridStep); i++) {
+    const a = w2s({ x: 0, y: i * gridStep });
+    grid.push(<line key={`gy${i}`} x1={0} y1={a.y} x2={size.w} y2={a.y} className={i === 0 ? 'axis' : 'grid'} />);
   }
 
   const trajectory = solution ? solution.samples.map((st) => w2s({ x: st.x, y: st.y })) : [];
   const moving = solution && (store.playback.t > 0 || store.playback.mode === 'playing') ? solution.evalAt(store.playback.t) : null;
   const movingPoint = moving ? w2s(moving) : null;
-  const movingText = moving ? `t=${moving.t.toFixed(2)} s` : '';
-  const activeFields=(solution?.evalAt(store.playback.t).fieldIds??[])
+  const movingKind = scene.bodies[0]?.kind;
+  const movingText = moving ? `t=${fmt(moving.t, 4)} s` : '';
+  const activeFields=((moving ?? solution?.evalAt(0))?.fieldIds??[])
     .map(id=>sceneFields.find(f=>f.id===id)?.name).filter(Boolean);
   const measurement = store.measure.a && store.measure.b ? {
     a: w2s(store.measure.a), b: w2s(store.measure.b),
@@ -389,7 +401,7 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
     if (selected) obstacles.push(labelObstacle(a, 8), labelObstacle(b, 8));
   }
   for (const { body, p, selected, tip } of bodies) {
-    labels.push({ id: body.id, at: p, text: body.name, tone: 'object', priority: selected ? 4 : 1 });
+    labels.push({ id: body.id, at: p, text: body.name+(moving?'（初始）':''), tone: 'object', priority: selected ? 4 : 1 });
     obstacles.push(labelObstacle(p, body.kind === 'block' ? 24 : 13));
     if (tip) {
       obstacles.push(labelObstacle(tip, 8));
@@ -401,7 +413,7 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
     labels.push({ id: `event-${key}`, at: p, text: texts.length > 1 ? `${texts[0]} · +${texts.length - 1}` : texts[0], tone: 'event', priority: 2 });
   }
   if (movingPoint) {
-    obstacles.push(labelObstacle(movingPoint, 10));
+    obstacles.push(labelObstacle(movingPoint, movingKind === 'block' ? 24 : 13));
     labels.push({ id: 'moving', at: movingPoint, text: movingText, tone: 'moving', priority: 5 });
   }
   if (measurement) {
@@ -498,7 +510,7 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
                   <>
                     <circle cx={p.x} cy={p.y} r={r} className="circle-track" />
                     <circle cx={p.x} cy={p.y} r={3} className="circle-center" />
-                    <circle cx={start.x} cy={start.y} r={10} className="body-circular" />
+                    <circle cx={start.x} cy={start.y} r={10} className={moving ? 'initial-body' : 'body-circular'} />
                   </>
                 );
               })()}
@@ -509,19 +521,30 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
                 </>
               )}
               {body.kind === 'block' && (
-                <rect x={-16} y={-16} width={32} height={32} transform={`translate(${p.x} ${p.y}) rotate(${angle})`} className="body-block" />
+                <rect x={-16} y={-16} width={32} height={32} transform={`translate(${p.x} ${p.y}) rotate(${angle})`} className={moving ? 'initial-body' : 'body-block'} />
               )}
               {(body.kind === 'projectile' || body.kind === 'ball') && (
-                <circle cx={p.x} cy={p.y} r={12} className="body-projectile" />
+                <circle cx={p.x} cy={p.y} r={12} className={moving ? 'initial-body' : 'body-projectile'} />
               )}
               {body.kind === 'boat' && (
-                <path d={`M ${p.x - 12} ${p.y + 6} L ${p.x + 12} ${p.y + 6} L ${p.x + 7} ${p.y - 6} L ${p.x - 7} ${p.y - 6} Z`} className="body-boat" />
+                <path transform={`translate(${p.x} ${p.y})`} d="M -12 6 L 12 6 L 7 -6 L -7 -6 Z" className={moving ? 'initial-body' : 'body-boat'} />
               )}
             </g>
           );
         })}
-        {movingPoint && (
-          <circle cx={movingPoint.x} cy={movingPoint.y} r={9} className="moving-marker"><title>{movingText}</title></circle>
+        {moving && movingPoint && (
+          <g className="moving-body" pointerEvents="none">
+            <title>{movingText}</title>
+            {movingKind === 'block' ? (
+              <rect x={-16} y={-16} width={32} height={32}
+                transform={`translate(${movingPoint.x} ${movingPoint.y}) rotate(${track ? -(trackSegmentAt(track, moving.s, moving.u).support.angleDeg ?? 0) : 0})`}
+                className="body-block" />
+            ) : movingKind === 'boat' ? (
+              <path transform={`translate(${movingPoint.x} ${movingPoint.y})`} d="M -12 6 L 12 6 L 7 -6 L -7 -6 Z" className="body-boat" />
+            ) : (
+              <circle cx={movingPoint.x} cy={movingPoint.y} r={movingKind === 'circular' ? 10 : 12} className={movingKind === 'circular' ? 'body-circular' : 'body-projectile'} />
+            )}
+          </g>
         )}
         {eventGroups.map(({ key, p, texts }) => (
           <rect key={key} x={p.x - 4} y={p.y - 4} width={8} height={8} transform={`rotate(45 ${p.x} ${p.y})`} className="event-marker">

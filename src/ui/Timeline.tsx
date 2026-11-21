@@ -5,7 +5,7 @@ import { isPlaybackRate, type Action, type Store } from '../state/store';
 
 const TIME_DIVISIONS = 600;
 
-export function Timeline({ store, dispatch, solution }: { store: Store; dispatch: (a: Action) => void; solution: Solution | null }) {
+export function Timeline({ store, dispatch, solution, onPlay }: { store: Store; dispatch: (a: Action) => void; solution: Solution | null; onPlay: () => void }) {
   const tEnd = solution?.tEnd ?? 0;
   const t = Math.min(store.playback.t, tEnd);
   const playing = store.playback.mode === 'playing';
@@ -24,10 +24,7 @@ export function Timeline({ store, dispatch, solution }: { store: Store; dispatch
         disabled={tEnd <= 0}
         onClick={() => {
           if (playing) dispatch({ type: 'pause' });
-          else {
-            if (t >= tEnd) dispatch({ type: 'scrub', t: 0 });
-            dispatch({ type: 'play' });
-          }
+          else onPlay();
         }}
       >
         {playing ? '暂停' : t > 0 && t < tEnd ? '继续' : '播放'}

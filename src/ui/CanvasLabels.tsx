@@ -47,6 +47,7 @@ export function CanvasLabels({ labels, obstacles, size }: {
   size: { w: number; h: number };
 }) {
   const context = useMemo(() => {
+    if (typeof document === 'undefined') return null;
     const ctx = document.createElement('canvas').getContext('2d');
     if (ctx) ctx.font = `${FONT_SIZE}px ${FONT}`;
     return ctx;
