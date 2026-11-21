@@ -28,6 +28,8 @@ describe('匀变速直线运动', () => {
     close(answer(sol, 'accel').value, -2);
     close(answer(sol, 'rest_t').value, 3);
     close(answer(sol, 'rest_x').value, 9);
+    close(sol.tEnd, 3);
+    close(sol.samples.at(-1)!.t, 3);
     close(sol.evalAt(sol.tEnd).vx, 0, 1e-12);
   });
 
@@ -36,6 +38,44 @@ describe('匀变速直线运动', () => {
     close(answer(sol, 'accel').value, 0);
     close(answer(sol, 'end_t').value, 4);
     close(answer(sol, 'end_v').value, 5);
+  });
+
+  it('长距离匀速运动与位置查询不受 6 秒限制', () => {
+    const ask = makeAsk('at_position', { x: 30 });
+    const sol = ok(solve(kin({ v0: 1, mu_k: 0, length: 40, asks: [ask, makeAsk('end_of_support')] })));
+    close(answer(sol, 'end_t').value, 40);
+    close(answer(sol, ask.id).value, 30);
+    close(sol.tEnd, 40);
+    close(sol.evalAt(40).x, 40);
+    expect(sol.samples.length).toBeLessThanOrEqual(401);
+  });
+
+  it('超过 6 秒后因摩擦停下：明确端点不可达', () => {
+    const sol = ok(solve(kin({ v0: 4, mu_k: 0.025, length: 80, asks: [makeAsk('end_of_support')] })));
+    close(answer(sol, 'rest_t').value, 16);
+    close(answer(sol, 'rest_x').value, 32);
+    expect(answer(sol, 'end_t')).toMatchObject({ value: null, note: expect.stringContaining('停下并保持静止') });
+    close(sol.tEnd, 16);
+  });
+
+  it('微小的非零加速度仍可求出有限的到达时间', () => {
+    const sol = ok(solve(kin({ v0: 0, accel: 1e-10, length: 50 })));
+    close(answer(sol, 'end_t').value, 1e6);
+    close(sol.evalAt(sol.tEnd).x, 50);
+  });
+
+  it('恰好在端点减速到零，仍算已到达', () => {
+    const sol = ok(solve(kin({ v0: 8, mu_k: 0.1, length: 32 })));
+    close(answer(sol, 'end_t').value, 8);
+    close(answer(sol, 'end_v').value, 0);
+    close(answer(sol, 'rest_t').value, 8);
+  });
+
+  it('已经在端点且速度指向面外，运动在初始时刻结束', () => {
+    const sol = ok(solve(kin({ s0: 40, v0: 1, mu_k: 0, length: 40 })));
+    close(answer(sol, 'end_t').value, 0);
+    expect(sol.samples).toHaveLength(1);
+    close(sol.samples[0].x, 40);
   });
 
   it('反向运动：x=8 有两解 t=2 与 t=4', () => {
@@ -53,11 +93,12 @@ describe('匀变速直线运动', () => {
     if (!r.ok) expect(r.report.blockers[0].message).toContain('μ');
   });
 
-  it('停止之后再询问：仍报告静止位置，不编造新运动', () => {
+  it('停止之后再询问：仍报告静止位置，播放不延长', () => {
     const sol = ok(solve(kin({ v0: 6, mu_k: 0.2, g: 10, asks: [makeAsk('at_time', { t: 99 })] })));
     const askId = sol.answers.find((a) => a.id.endsWith('.x'))!.id.split('.')[0];
     close(answer(sol, `${askId}.x`).value, 9);
     close(answer(sol, `${askId}.v`).value, 0);
+    close(sol.tEnd, 3);
   });
 
   it('越过端点终止后再询问：明确说明运动已结束', () => {
@@ -66,8 +107,10 @@ describe('匀变速直线运动', () => {
     expect(sol.answers.find((a) => a.label.includes('99'))!.value).toBeNull();
   });
 
-  it('初始静止且光滑：保持静止', () => {
+  it('初始静止且光滑：只显示初始状态', () => {
     const sol = ok(solve(kin({ v0: 0, mu_k: 0 })));
-    for (const st of sol.samples) close(st.vx, 0, 1e-12);
+    close(sol.tEnd, 0);
+    expect(sol.samples).toHaveLength(1);
+    close(sol.samples[0].vx, 0);
   });
 });

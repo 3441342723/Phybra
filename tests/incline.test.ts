@@ -21,6 +21,7 @@ describe('单物体斜面与摩擦', () => {
     expect(answer(sol, 'friction').text).toContain('静止');
     expect(answer(sol, 'end_t').value).toBeNull();
     expect(sol.events.length).toBe(0);
+    close(sol.tEnd, 0);
     for (const st of sol.samples) close(st.s, 5, 1e-12);
   });
 
@@ -42,6 +43,14 @@ describe('单物体斜面与摩擦', () => {
     close(answer(sol, 'end_v').value, 5 * Math.SQRT2, 1e-9);
   });
 
+  it('长斜面：超过 6 秒后仍可到达端点', () => {
+    const sol = ok(solve(incline({ mu_s: 0, mu_k: 0, length: 250 })));
+    close(answer(sol, 'end_t').value, 10);
+    close(answer(sol, 'end_v').value, 50);
+    close(sol.tEnd, 10);
+    close(sol.evalAt(10).s, 0);
+  });
+
   it('上滑减速后自锁：μ_s=0.6, μk=0.5, u0=+4', () => {
     const sol = ok(solve(incline({ mu_s: 0.6, mu_k: 0.5, u: 4, s0: 1, length: 10, g: 10 })));
     const aUp = -10 * (SIN30 + 0.5 * COS30);
@@ -49,6 +58,8 @@ describe('单物体斜面与摩擦', () => {
     close(sol.events.find((e) => e.kind === 'rest')!.t, tRest, 1e-9);
     close(sol.evalAt(tRest).s, 1 + (4 * tRest + 0.5 * aUp * tRest * tRest), 1e-9);
     expect(sol.events.some((e) => e.kind === 'end_of_support')).toBe(false);
+    expect(answer(sol, 'end_t').note).toContain('停下并保持静止');
+    close(sol.tEnd, tRest);
     close(sol.evalAt(sol.tEnd).vx, 0, 1e-9);
   });
 
@@ -62,6 +73,8 @@ describe('单物体斜面与摩擦', () => {
     expect(sol.stages.length).toBe(2);
     close(sol.stages[0].t1 - sol.stages[0].t0, tRest, 1e-9);
     close(answer(sol, 'end_t').value, tRest + tDown, 1e-8);
+    close(sol.tEnd, tRest + tDown, 1e-8);
+    expect(sol.evalAt(tRest + tDown / 2).u).toBeLessThan(0);
     close(answer(sol, 'end_v').value, Math.abs(aDown) * tDown, 1e-8);
   });
 

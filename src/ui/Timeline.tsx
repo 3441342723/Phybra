@@ -10,7 +10,7 @@ export function Timeline({ store, dispatch, solution }: { store: Store; dispatch
     <div className="timeline">
       <button
         className="primary"
-        disabled={!solution}
+        disabled={tEnd <= 0}
         onClick={() => {
           if (playing) dispatch({ type: 'pause' });
           else {
@@ -29,7 +29,7 @@ export function Timeline({ store, dispatch, solution }: { store: Store; dispatch
         max={tEnd || 1}
         step={(tEnd || 1) / 600}
         value={t}
-        disabled={!solution}
+        disabled={tEnd <= 0}
         onChange={(e) => dispatch({ type: 'scrub', t: Number(e.target.value) })}
       />
       <span className="time-readout">t = {fmt(t)} / {fmt(tEnd)} s</span>

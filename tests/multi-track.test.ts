@@ -16,6 +16,41 @@ describe('多支撑面选择', () => {
 });
 
 describe('连续轨道', () => {
+  it('超过 6 秒后经过连接点，继续求解至外端点', () => {
+    const sc = baseScene('两段光滑水平轨道');
+    const first = makeSupport('horizontal', { x: 0, y: 0 }, 20, 0);
+    const second = makeSupport('horizontal', { x: 20, y: 0 }, 20, 0);
+    const block = makeBlock(first.id, 0);
+    block.vel = { x: 1, y: 0 };
+    sc.supports = [first, second];
+    sc.bodies = [block];
+    sc.contacts = sc.supports.map((s) => makeContact(block.id, s.id, 0, 0));
+    sc.asks = [makeAsk('end_of_support')];
+    const sol = ok(solve(sc));
+    close(sol.events.find((e) => e.kind === 'junction')!.t, 20);
+    close(answer(sol, 'end_t').value, 40);
+    close(sol.tEnd, 40);
+    close(sol.evalAt(40).s, 40);
+  });
+
+  it('往复运动达到分段保护上限时，报告未能确定后续结果', () => {
+    const sc = baseScene('光滑 V 形轨道');
+    const down = makeSupport('incline', { x: 0, y: 5 }, 10, -30);
+    const up = makeSupport('incline', { x: 5 * Math.sqrt(3), y: 0 }, 10, 30);
+    const block = makeBlock(down.id, 5);
+    block.vel = { x: 0, y: 0 };
+    sc.supports = [down, up];
+    sc.bodies = [block];
+    sc.contacts = sc.supports.map((s) => makeContact(block.id, s.id, 0, 0));
+    const ask = makeAsk('at_time', { t: 1000 });
+    sc.asks = [makeAsk('end_of_support'), ask];
+    const sol = ok(solve(sc));
+    expect(sol.events.filter((e) => e.kind === 'junction').length).toBeGreaterThan(2);
+    expect(answer(sol, 'end_t')).toMatchObject({ value: null, note: expect.stringContaining('尚未确定') });
+    expect(answer(sol, ask.id)).toMatchObject({ value: null, note: expect.stringContaining('尚未确定') });
+    expect(sol.tEnd).toBeGreaterThan(6);
+  });
+
   it('水平面连接斜面：跨面速率连续，进入斜面后使用斜面加速度', () => {
     const sc = baseScene('水平接斜面');
     sc.gravity = 10;
@@ -26,7 +61,8 @@ describe('连续轨道', () => {
     sc.supports = [flat, ramp];
     sc.bodies = [block];
     sc.contacts = [makeContact(block.id, flat.id, 0.6, 0), makeContact(block.id, ramp.id, 0.6, 0)];
-    sc.asks = [makeAsk('at_time', { t: 1.5 }), makeAsk('rest')];
+    const later = makeAsk('at_time', { t: 10 });
+    sc.asks = [makeAsk('at_time', { t: 1.5 }), makeAsk('rest'), later];
     const sol = ok(solve(sc));
     const track = buildSurfaceTrack(sc, flat.id);
     expect(track.segments.map((s) => s.support.id)).toEqual([flat.id, ramp.id]);
@@ -39,6 +75,9 @@ describe('连续轨道', () => {
     close(sol.evalAt(1.5).x, 5 + 1.875 * Math.cos(Math.PI / 6));
     close(sol.evalAt(1.5).y, 1.875 * Math.sin(Math.PI / 6));
     close(answer(sol, 'rest_t').value, 2);
+    close(sol.tEnd, 2);
+    close(answer(sol, `${later.id}.s`).value, 7.5);
+    close(answer(sol, `${later.id}.u`).value, 0);
   });
 
   it('斜面连接斜面：两段使用不同摩擦，连接点不截断运动', () => {
