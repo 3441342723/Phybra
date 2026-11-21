@@ -4,7 +4,8 @@ import type { WindowId, WindowLayout } from '../state/layout';
 
 const GROUPS: { id: string; label: string; tools: { id: ToolId; label: string }[] }[] = [
   { id: 'operate', label: '操作', tools: [{ id: 'select', label: '选择 / 拖动' }, { id: 'pan', label: '平移画布' }] },
-  { id: 'objects', label: '对象', tools: [{ id: 'block', label: '滑块' }, { id: 'projectile', label: '抛体' }, { id: 'horizontal', label: '水平面' }, { id: 'incline', label: '斜面' }] },
+  { id: 'objects', label: '对象', tools: [{ id: 'ball', label: '小球' }, { id: 'block', label: '物块' }, { id: 'rope', label: '绳' }, { id: 'rod', label: '杆' }, { id: 'incline', label: '斜面（0° 为水平面）' }] },
+  { id: 'fields', label: '场', tools: [{ id: 'uniform_gravity', label: '重力场' }, { id: 'uniform_electric', label: '电场' }, { id: 'uniform_magnetic', label: '磁场' }, { id: 'point_mass', label: '点质量引力场' }, { id: 'point_charge', label: '点电荷电场' }, { id: 'field_polygon', label: '描绘多边形场区' }] },
   { id: 'vectors', label: '矢量', tools: [{ id: 'velocity', label: '初速度矢量' }] },
   { id: 'measure', label: '测量', tools: [{ id: 'measure', label: '两点距离' }] },
 ];

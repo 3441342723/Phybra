@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { EXAMPLES, inclineExample } from './model/factory';
+import { ELECTROMAGNETIC_EXAMPLES, EXAMPLES, inclineExample } from './model/factory';
 import { getAt } from './model/paths';
 import { solve } from './solver';
 import { activeSolution, initStore, reducer, type Store } from './state/store';
-import { exportScene, loadCamera, loadScene, loadSnap, readSceneFile, saveCamera, saveScene, saveSnap } from './state/persist';
+import { exportScene, loadCamera, loadPlaybackRate, loadScene, loadSnap, readSceneFile, saveCamera, savePlaybackRate, saveScene, saveSnap } from './state/persist';
 import { clampRect, defaultLayout, loadLayout, saveLayout, WINDOW_IDS, type WindowId, type WindowLayout } from './state/layout';
 import { withField, type FieldEdit } from './state/editing';
 import { Canvas, type Edit } from './ui/Canvas';
@@ -17,7 +17,7 @@ import { FloatingWindow } from './ui/FloatingWindow';
 import { Toolbar } from './ui/Toolbar';
 
 export default function App() {
-  const [store, dispatch] = useReducer(reducer, undefined, () => initStore(loadScene() ?? inclineExample(), loadCamera() ?? undefined, loadSnap() ?? undefined));
+  const [store, dispatch] = useReducer(reducer, undefined, () => initStore(loadScene() ?? inclineExample(), loadCamera() ?? undefined, loadSnap() ?? undefined, loadPlaybackRate()));
   const storeRef = useRef<Store>(store);
   storeRef.current = store;
   const [layout, setLayout] = useState<WindowLayout>(() => loadLayout() ?? defaultLayout(window.innerWidth, window.innerHeight - 180));
@@ -104,8 +104,18 @@ export default function App() {
   }, [store.snap]);
 
   useEffect(() => {
+    savePlaybackRate(store.playbackRate);
+  }, [store.playbackRate]);
+
+  useEffect(() => {
     saveLayout(layout);
   }, [layout]);
+
+  useEffect(() => {
+    if (!store.notice) return;
+    const timer = setTimeout(() => dispatch({ type: 'notice', text: null }), 3200);
+    return () => clearTimeout(timer);
+  }, [store.notice]);
 
   useEffect(() => {
     if (!workspaceRef.current) return;
@@ -134,7 +144,7 @@ export default function App() {
       }
       const dt = (now - last) / 1000;
       last = now;
-      dispatch({ type: 'tick', t: st.playback.t + dt, tEnd: sol.tEnd });
+      dispatch({ type: 'tick', elapsed: dt, tEnd: sol.tEnd });
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
@@ -171,13 +181,15 @@ export default function App() {
     const scene = store.present;
     const sup = scene.supports.find((s) => s.id === id);
     const body = scene.bodies.find((b) => b.id === id);
-    if (!sup && !body) return null;
-    const bodyIds = sup ? scene.bodies.filter((b) => b.attach?.support === id).map((b) => b.id) : [id];
+    const field = scene.fields?.find(f=>f.id===id);
+    const link = scene.links?.find(l=>l.id===id);
+    if (!sup && !body && !field && !link) return null;
+    const bodyIds = sup ? scene.bodies.filter((b) => b.attach?.support === id).map((b) => b.id) : body ? [id] : [];
     const supportIds = sup ? [id] : [];
     const contactIds = scene.contacts.filter((c) => bodyIds.includes(c.body) || supportIds.includes(c.support)).map((c) => c.id);
     const selfBody = body ? id : null;
     const dependentBodies = bodyIds.filter((b) => b !== selfBody);
-    return { id, bodyIds, supportIds, contactIds, dependentBodies };
+    return { id, bodyIds, supportIds, contactIds, dependentBodies, field, link };
   }, [store.confirmDelete, store.present]);
 
   function confirmDelete() {
@@ -186,6 +198,8 @@ export default function App() {
     const isRemoved = (path: string) =>
       deleteInfo.bodyIds.some((id) => path.startsWith(`bodies.${id}.`)) ||
       deleteInfo.supportIds.some((id) => path.startsWith(`supports.${id}.`)) ||
+      (deleteInfo.field && path.startsWith(`fields.${deleteInfo.field.id}.`)) ||
+      (deleteInfo.link && path.startsWith(`links.${deleteInfo.link.id}.`)) ||
       deleteInfo.contactIds.some((id) => path.startsWith(`contacts.${id}.`));
     const next = {
       ...scene,
@@ -193,6 +207,11 @@ export default function App() {
       bodies: scene.bodies.filter((b) => !deleteInfo.bodyIds.includes(b.id)),
       supports: scene.supports.filter((s) => !deleteInfo.supportIds.includes(s.id)),
       contacts: scene.contacts.filter((c) => !deleteInfo.contactIds.includes(c.id)),
+      fields: scene.fields?.filter(f=>f.id!==deleteInfo.field?.id),
+      links: scene.links?.filter(l=>l.id!==deleteInfo.link?.id).map(l=>l.bodyId&&deleteInfo.bodyIds.includes(l.bodyId)?{...l,bodyId:null}:l),
+      fieldPlayback: scene.fieldPlayback && (scene.fieldPlayback.fieldId === deleteInfo.field?.id ||
+        scene.fieldPlayback.exit==='union'&&!scene.fields?.some(f=>f.id!==deleteInfo.field?.id&&f.enabled&&f.shape.kind!=='global'))
+        ? {...scene.fieldPlayback,exit:'continue' as const,fieldId:null} : scene.fieldPlayback,
       bindings: Object.fromEntries(Object.entries(scene.bindings).filter(([path]) => !isRemoved(path) && getAt(scene, path) !== undefined)),
     };
     dispatch({ type: 'apply', scene: next });
@@ -208,15 +227,17 @@ export default function App() {
         <strong>高中物理工作台</strong>
         <span className="badge">本地雏形 · 确定性求解在浏览器内完成</span>
         <select
+          aria-label="载入示例"
           defaultValue=""
           onChange={(e) => {
-            const ex = EXAMPLES.find((x) => x.id === e.target.value);
+            const ex = [...EXAMPLES, ...ELECTROMAGNETIC_EXAMPLES].find((x) => x.id === e.target.value);
             if (ex) dispatch({ type: 'load', scene: ex.build() });
             e.target.value = '';
           }}
         >
           <option value="">载入示例…</option>
-          {EXAMPLES.map((ex) => <option key={ex.id} value={ex.id}>{ex.title}</option>)}
+          <optgroup label="力学">{EXAMPLES.map((ex) => <option key={ex.id} value={ex.id}>{ex.title}</option>)}</optgroup>
+          <optgroup label="电磁学">{ELECTROMAGNETIC_EXAMPLES.map((ex) => <option key={ex.id} value={ex.id}>{ex.title}</option>)}</optgroup>
         </select>
         <button disabled={!store.past.length} onClick={() => dispatch({ type: 'undo' })}>撤销</button>
         <button disabled={!store.future.length} onClick={() => dispatch({ type: 'redo' })}>重做</button>

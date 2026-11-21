@@ -93,6 +93,7 @@ textarea { width: 100%; resize: vertical; }
   padding: 3px 10px; font-size: 11px; color: #6b7280; background: rgba(255, 255, 255, 0.85);
   pointer-events: none;
 }
+.canvas-status .notice { color: #b45309; font-weight: 600; }
 .grid { stroke: #f0f1f3; stroke-width: 1; }
 .grid-dot { fill: #cbd5e1; pointer-events: none; }
 .axis { stroke: #d4d7dc; stroke-width: 1.2; }
@@ -109,7 +110,14 @@ textarea { width: 100%; resize: vertical; }
 .canvas-label > text { fill: var(--label-ink); }
 .body-block { fill: #93c5fd; stroke: #1d4ed8; stroke-width: 2; }
 .body-projectile { fill: #93c5fd; stroke: #1d4ed8; stroke-width: 2; }
-.selected .body-block, .selected .body-projectile { fill: #bfdbfe; stroke: #f59e0b; }
+.body-boat { fill: #fcd34d; stroke: #b45309; stroke-width: 2; }
+.body-circular { fill: #93c5fd; stroke: #1d4ed8; stroke-width: 2; }
+.selected .body-block, .selected .body-projectile, .selected .body-boat, .selected .body-circular { fill: #bfdbfe; stroke: #f59e0b; }
+.circle-track { fill: none; stroke: #94a3b8; stroke-width: 2; stroke-dasharray: 4 3; }
+.circle-center { fill: #64748b; }
+.river-bank { stroke: #4b5563; stroke-width: 3; }
+.flow-arrow { stroke: #0891b2; stroke-width: 2.5; }
+.resultant-arrow { stroke: #7c3aed; stroke-width: 2.5; }
 .selected .support-line { stroke: #f59e0b; }
 .handle { fill: #fff; stroke: #f59e0b; stroke-width: 2; cursor: move; }
 .handle.velocity { stroke: #059669; }
@@ -119,6 +127,18 @@ textarea { width: 100%; resize: vertical; }
 .moving-marker { fill: #f59e0b; stroke: #b45309; stroke-width: 2; }
 .measure-line { stroke: #0891b2; stroke-width: 2; stroke-dasharray: 4 3; }
 .joint-marker { fill: #10b981; stroke: #047857; stroke-width: 1.5; }
+.field-region { fill: currentColor; fill-opacity: .10; stroke: currentColor; stroke-width: 1.5; cursor: move; }
+.selected-field { stroke-width: 2.75; stroke-dasharray: 5 3; }
+.field-glyph, .field-handle { fill: #fff; stroke: currentColor; stroke-width: 1.5; cursor: move; }
+.field-symbol { cursor: move; font-weight: 700; }
+.field-handle { stroke-width: 2; }
+.field-draft { stroke: #2563eb; fill: #fff; stroke-width: 2; pointer-events: none; }
+.physical-link { stroke: #475569; stroke-width: 3; cursor: move; }
+.rope-link { stroke-width: 2; stroke-dasharray: 4 2; }
+.link-anchor { fill: #fff; stroke: #475569; stroke-width: 2; cursor: move; }
+.selected-link .link-anchor, .selected-link .physical-link { stroke: #d97706; }
+.polygon-actions { position: absolute; z-index: 1; left: 8px; bottom: 44px; display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; }
+.field-control { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 7px; }
 
 .numfield { margin: 6px 0; }
 .numfield-head { display: flex; justify-content: space-between; align-items: center; }
@@ -140,6 +160,8 @@ textarea { width: 100%; resize: vertical; }
 .result-panel { background: #fff; }
 .result-head { padding: 6px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .result-body { padding: 0 14px 12px; }
+.field-crossings { margin: 5px 0 10px; }
+.field-crossings button { display: block; margin-top: 4px; text-align: left; }
 .answer-row { display: flex; gap: 10px; padding: 3px 0; align-items: baseline; flex-wrap: wrap; overflow-wrap: anywhere; }
 .answer-label { color: #374151; min-width: 180px; }
 .answer-value { font-weight: 600; color: #111827; }
@@ -155,11 +177,15 @@ textarea { width: 100%; resize: vertical; }
 .timeline-stages .badge { flex: 0 0 auto; margin-right: 0; white-space: nowrap; }
 .time-slider { flex: 1; min-width: 140px; }
 .time-readout { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.playback-rate { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+.playback-rate input { width: 76px; }
 .charts { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .charts-tabs { display: flex; flex-wrap: wrap; gap: 4px 6px; padding: 4px 8px; align-items: center; }
 .charts-tabs button { padding-inline: 6px; white-space: nowrap; }
 .chart-time { margin-left: auto; font-size: 11px; color: #92400e; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .chart-body { flex: 1; min-height: 0; }
+.chart-energy-note { margin: 0 8px 4px; }
+.energy-point-field > label { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 5px 0; }
 
 .modal-mask {
   position: fixed; inset: 0; background: rgba(17, 24, 39, 0.45);

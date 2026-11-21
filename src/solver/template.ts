@@ -1,7 +1,7 @@
-import type { CheckIssue, Scene, SolveResult } from '../model/types';
+import type { CheckIssue, Scene, Solution, SolveResult } from '../model/types';
 
 export type Template = {
-  id: 'kinematics-1d' | 'projectile' | 'incline-friction';
+  id: Solution['template'];
   match: (scene: Scene) => boolean;
   solve: (scene: Scene) => SolveResult;
 };

@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import type { Body, Scene, Solution, Vec2 } from '../model/types';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Body, Field, FieldKind, Link, Scene, Solution, Vec2 } from '../model/types';
 import { bodyWorld, nearestSupport, projectToSupport, supportDir, supportEnd, supportLength } from '../model/geometry';
-import { makeAsk, makeBlock, makeContact, makeProjectile, makeSupport } from '../model/factory';
+import { makeAsk, makeBall, makeBlock, makeContact, makeField, makeLink, makeSupport } from '../model/factory';
+import { FIELD_COLORS, FIELD_LABELS, hasGradient, shapeCenter, shapeVertices, translateShape, validPolygon } from '../model/fields';
+import { resolveBindings } from '../model/paths';
+import { FieldLayer } from './FieldLayer';
 import { withField } from '../state/editing';
 import { snapPoint, snapValue } from '../model/snap';
 import type { Action, Camera, Store } from '../state/store';
@@ -19,6 +22,8 @@ type Drag =
   | { kind: 'body'; id: string }
   | { kind: 'support'; id: string; start: Vec2; origA: Vec2 }
   | { kind: 'endpoint'; id: string; end: 'a' | 'b' }
+  | { kind: 'field'; id: string; handle: string; start: Vec2; original: Field }
+  | { kind: 'link'; id: string; start: Vec2; original: Link }
   | { kind: 'velocity'; id: string };
 
 const VSCALE = 12;
@@ -27,8 +32,15 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
   const ref = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
   const [size, setSize] = useState({ w: 900, h: 520 });
+  const [polygon, setPolygon] = useState<Vec2[]>([]);
+  const [polygonKind, setPolygonKind] = useState<FieldKind>('uniform_gravity');
   const scene = store.present;
   const cam = store.camera;
+  const sceneFields = scene.fields ?? [];
+  const visibleFields = useMemo(() => scene.fields?.length ? resolveBindings(scene).fields! : [], [scene]);
+  const links = scene.links ?? [];
+
+  useEffect(() => { if (store.tool !== 'field_polygon') setPolygon([]); }, [store.tool]);
 
   useEffect(() => {
     if (!ref.current) return;
@@ -50,10 +62,14 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
 
   function bodyScreen(body: Body): Vec2 | null {
     const p = bodyWorld(scene, body);
-    return p ? w2s(p) : null;
+    if (!p) return null;
+    const link=links.find(l=>l.bodyId===body.id);
+    const r=link?dist(p,link.anchor):0;
+    return w2s(link&&r>0?{x:link.anchor.x+(p.x-link.anchor.x)*link.length/r,y:link.anchor.y+(p.y-link.anchor.y)*link.length/r}:p);
   }
 
   function velocityTip(body: Body): Vec2 | null {
+    if (body.kind === 'circular') return null;
     const base = bodyScreen(body);
     if (!base) return null;
     if (body.attach) {
@@ -98,29 +114,44 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
     const world = snapPoint(pointer, store.snap);
     let next = scene;
     let created = '';
-    if (store.tool === 'projectile') {
-      const b = makeProjectile(Number(world.x.toFixed(2)), Number(world.y.toFixed(2)), 5, 5);
+    if (store.tool === 'ball') {
+      const b = makeBall(world);
       next = { ...next, bodies: [...next.bodies, b] };
+      if (next.asks.length === 0) next = { ...next, asks: [makeAsk('at_time', { t: 1 })] };
       created = b.id;
-    } else if (store.tool === 'horizontal' || store.tool === 'incline') {
-      const kind = store.tool === 'incline' ? 'incline' : 'horizontal';
-      const sup = makeSupport(kind, { x: Number(world.x.toFixed(2)), y: Number(world.y.toFixed(2)) }, 5, kind === 'incline' ? 30 : 0);
-      sup.name = `${kind === 'incline' ? '斜面' : '水平面'} ${next.supports.length + 1}`;
+    } else if (Object.hasOwn(FIELD_LABELS,store.tool)) {
+      const f=makeField(store.tool as FieldKind,world);
+      f.name+=` ${sceneFields.length+1}`;
+      next={...next,fields:[...sceneFields,f]};
+      created=f.id;
+    } else if (store.tool === 'rope' || store.tool === 'rod') {
+      const ball=scene.bodies.find(b=>b.kind==='ball'&&!links.some(l=>l.bodyId===b.id));
+      const pos=ball?bodyWorld(scene,ball):null;
+      const length=pos?dist(pos,world):2;
+      if(length<1e-6){
+        dispatch({type:'notice',text:'绳杆锚点不能与小球重合。'});
+        return;
+      }
+      const link=makeLink(store.tool,world,ball?.id??null,length);
+      next={...next,links:[...links,link]};
+      created=link.id;
+    } else if (store.tool === 'incline') {
+      const sup = makeSupport('incline', world, 5, 30);
+      sup.name = `斜面 ${next.supports.length + 1}`;
       const contacts = next.bodies.filter((b) => b.kind === 'block').map((b) => makeContact(b.id, sup.id, 0.4, 0.3));
       next = { ...next, supports: [...next.supports, sup], contacts: [...next.contacts, ...contacts] };
       created = sup.id;
     } else if (store.tool === 'block') {
-      let sup = nearestSupport(next.supports, world, 1.5);
+      const sup = nearestSupport(next.supports, world, 1.5);
       if (!sup) {
-        sup = makeSupport('horizontal', { x: world.x - 5, y: world.y }, 10, 0);
-        sup.name = `水平面 ${next.supports.length + 1}`;
-        next = { ...next, supports: [...next.supports, sup] };
+        dispatch({ type: 'notice', text: '请先从「对象」放置斜面（倾角 0° 为水平面），再点击斜面放置物块。' });
+        return;
       }
       const s = snapValue(projectToSupport(sup, world), store.snap);
       const block = makeBlock(sup.id, s);
       const contacts = next.supports.map((support) => makeContact(block.id, support.id, 0.4, 0.3));
       next = { ...next, bodies: [...next.bodies, block], contacts: [...next.contacts, ...contacts] };
-      if (next.asks.length === 0) next = { ...next, asks: [makeAsk(sup.kind === 'incline' ? 'end_of_support' : 'at_time', sup.kind === 'incline' ? {} : { t: 2 })] };
+      if (next.asks.length === 0) next = { ...next, asks: [Math.abs(sup.angleDeg ?? 0)>1e-9 ? makeAsk('end_of_support') : makeAsk('at_time', { t: 2 })] };
       created = block.id;
     }
     if (created) {
@@ -129,6 +160,19 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
       dispatch({ type: 'select', id: created });
       dispatch({ type: 'tool', tool: 'select' });
     }
+  }
+
+  function finishPolygon() {
+    if (!validPolygon(polygon)) {
+      dispatch({type:'notice',text:'多边形需要至少三个顶点，且不能自交。'});
+      return;
+    }
+    const shape={kind:'polygon' as const,vertices:polygon};
+    const f=makeField(polygonKind,shapeCenter(shape,polygon[0]),shape);
+    f.name+=` ${sceneFields.length+1}`;
+    edit.apply({...scene,fields:[...sceneFields,f],rev:scene.rev+1});
+    dispatch({type:'select',id:f.id});
+    dispatch({type:'tool',tool:'select'});
   }
 
   function onPointerDown(e: React.PointerEvent) {
@@ -147,11 +191,24 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
       dispatch({ type: 'measure', point: snapPoint(world, store.snap) });
       return;
     }
-    if (['block', 'projectile', 'horizontal', 'incline'].includes(store.tool)) {
+    if (store.tool==='field_polygon') {
+      if (polygon.length>=3 && dist(p,w2s(polygon[0]))<11) finishPolygon();
+      else setPolygon([...polygon,snapPoint(world,store.snap)]);
+      return;
+    }
+    if (['block', 'ball', 'rope', 'rod', 'incline'].includes(store.tool) || Object.hasOwn(FIELD_LABELS,store.tool)) {
       createAt(world);
       return;
     }
-    const hit = hitTest(p);
+    const node=e.target as Element;
+    const fieldTarget=node.closest('[data-field]');
+    const field=sceneFields.find(f=>f.id===fieldTarget?.getAttribute('data-field'));
+    const fieldHandle=fieldTarget?.getAttribute('data-field-handle')??'move';
+    const link=links.find(l=>l.id===node.closest('[data-link]')?.getAttribute('data-link'));
+    const hit: Drag | null = (field && fieldHandle !== 'move' ? {kind:'field',id:field.id,handle:fieldHandle,start:world,original:field} : null)
+      ?? hitTest(p) ?? (link ? {kind:'link',id:link.id,start:world,original:link}
+        : field
+          ? {kind:'field',id:field.id,handle:fieldHandle,start:world,original:field} : null);
     if (!hit) {
       dispatch({ type: 'select', id: null });
       drag.current = { kind: 'pan', startX: p.x, startY: p.y, cam: { ...cam } };
@@ -172,7 +229,27 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
     }
     const world = snapPoint(s2w(p), store.snap);
     let next = scene;
-    if (d.kind === 'body') {
+    if(d.kind==='field'){
+      const f=d.original, delta={x:world.x-d.start.x,y:world.y-d.start.y};
+      let updated={...f};
+      if(d.handle==='source'||f.shape.kind==='global') updated.position={x:f.position.x+delta.x,y:f.position.y+delta.y};
+      else if(d.handle==='radius'&&f.shape.kind==='circle') updated.shape={...f.shape,radius:Math.max(0.001,dist(world,f.shape.center))};
+      else if(d.handle.startsWith('corner-')&&f.shape.kind==='rect'){
+        const opposite=shapeVertices(f.shape)[(Number(d.handle.slice(7))+2)%4];
+        updated.shape={kind:'rect',center:{x:(world.x+opposite.x)/2,y:(world.y+opposite.y)/2},width:Math.max(.001,Math.abs(world.x-opposite.x)),height:Math.max(.001,Math.abs(world.y-opposite.y))};
+      } else if(d.handle.startsWith('vertex-')&&f.shape.kind==='polygon'){
+        const vertices=f.shape.vertices.map((v,i)=>i===Number(d.handle.slice(7))?world:v);
+        if(!validPolygon(vertices)) return;
+        updated.shape={kind:'polygon',vertices};
+      } else {
+        updated.shape=translateShape(f.shape,delta);
+        if(hasGradient(f)) updated.position={x:f.position.x+delta.x,y:f.position.y+delta.y};
+      }
+      next={...scene,fields:sceneFields.map(item=>item.id===d.id?updated:item),rev:scene.rev+1};
+    } else if(d.kind==='link'){
+      const anchor={x:d.original.anchor.x+world.x-d.start.x,y:d.original.anchor.y+world.y-d.start.y};
+      next={...scene,links:links.map(l=>l.id===d.id?{...l,anchor}:l),rev:scene.rev+1};
+    } else if (d.kind === 'body') {
       const body = scene.bodies.find((b) => b.id === d.id)!;
       if (body.attach) {
         const current = scene.supports.find((s) => s.id === body.attach!.support)!;
@@ -201,7 +278,7 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
         const len = Math.max(0.2, Math.hypot(dx, dy));
         const newLen = Number(len.toFixed(3));
         next = withField(next, `supports.${d.id}.length`, newLen);
-        if (sup.kind === 'incline') next = withField(next, `supports.${d.id}.angleDeg`, Number(((Math.atan2(dy, dx) * 180) / Math.PI).toFixed(2)));
+        next = withField(next, `supports.${d.id}.angleDeg`, Number(((Math.atan2(dy, dx) * 180) / Math.PI).toFixed(2)));
         for (const body of scene.bodies) {
           if (body.attach?.support !== d.id || body.attach.s === null) continue;
           if (body.attach.s >= oldLen - 1e-6) next = withField(next, `bodies.${body.id}.attach.s`, newLen);
@@ -260,6 +337,8 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
   const moving = solution && (store.playback.t > 0 || store.playback.mode === 'playing') ? solution.evalAt(store.playback.t) : null;
   const movingPoint = moving ? w2s(moving) : null;
   const movingText = moving ? `t=${moving.t.toFixed(2)} s` : '';
+  const activeFields=(solution?.evalAt(store.playback.t).fieldIds??[])
+    .map(id=>sceneFields.find(f=>f.id===id)?.name).filter(Boolean);
   const measurement = store.measure.a && store.measure.b ? {
     a: w2s(store.measure.a), b: w2s(store.measure.b),
     text: `${dist(store.measure.a, store.measure.b).toFixed(3)} m`,
@@ -278,7 +357,7 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
   const mid = (a: Vec2, b: Vec2) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
   const supports = scene.supports.map((sup) => ({
     sup, a: w2s(sup.a), b: w2s(supportEnd(sup)), selected: store.selection === sup.id,
-    text: `${sup.name}${sup.kind === 'incline' ? ` θ=${sup.angleDeg ?? '?'}°` : ''} L=${sup.length ?? '?'} m`,
+    text: `${sup.name} θ=${sup.angleDeg ?? '?'}° L=${sup.length ?? '?'} m`,
   }));
   const bodies = scene.bodies.flatMap((body) => {
     const p = bodyScreen(body);
@@ -300,6 +379,11 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
   const jointPoints = joints.map(w2s);
   const labels: CanvasLabel[] = [];
   const obstacles = jointPoints.map((p) => labelObstacle(p, 6));
+  for(const f of sceneFields) {
+    const p=w2s(shapeCenter(f.shape,f.position));
+    obstacles.push(labelObstacle(p,11));
+    labels.push({id:f.id,at:p,text:f.name,tone:'object',priority:store.selection===f.id?4:0});
+  }
   for (const { sup, a, b, selected, text } of supports) {
     labels.push({ id: sup.id, at: mid(a, b), text, tone: 'object', priority: selected ? 4 : 0 });
     if (selected) obstacles.push(labelObstacle(a, 8), labelObstacle(b, 8));
@@ -333,6 +417,7 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
         onWheel={onWheel}
         className={`tool-${store.tool}`}
       >
@@ -343,6 +428,14 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
         </defs>
         <rect width={size.w} height={size.h} fill="url(#snap-grid)" />
         {grid}
+        <FieldLayer fields={visibleFields} links={links} selection={store.selection} toScreen={w2s} draft={polygon} draftColor={FIELD_COLORS[polygonKind]}
+          linkBody={(link)=>{
+            const b=scene.bodies.find(b=>b.id===link.bodyId);
+            if(!b)return null;
+            if(moving)return moving;
+            const p=bodyScreen(b);
+            return p?s2w(p):null;
+          }} />
         {trajectory.length > 1 && (
           <polyline points={trajectory.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')} className="trajectory" />
         )}
@@ -371,16 +464,58 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
           return (
             <g key={body.id} className={selected ? 'selected' : ''}>
               <title>{body.name}</title>
-              {tip && (
+              {body.kind === 'boat' && (() => {
+                const w = body.width ?? 0;
+                const x0 = body.pos.x ?? 0;
+                const y0 = body.pos.y ?? 0;
+                const maxX = solution ? Math.max(x0 + 30, ...solution.samples.map((st) => st.x)) : x0 + 30;
+                const na = w2s({ x: x0 - 6, y: y0 });
+                const nb = w2s({ x: maxX + 6, y: y0 });
+                const fa = w2s({ x: x0 - 6, y: y0 + w });
+                const fb = w2s({ x: maxX + 6, y: y0 + w });
+                const fx = body.flow?.x ?? 0;
+                const fy = body.flow?.y ?? 0;
+                const rx = (body.vel.x ?? 0) + fx;
+                const ry = (body.vel.y ?? 0) + fy;
+                return (
+                  <>
+                    <line x1={na.x} y1={na.y} x2={nb.x} y2={nb.y} className="river-bank"><title>近岸</title></line>
+                    <line x1={fa.x} y1={fa.y} x2={fb.x} y2={fb.y} className="river-bank"><title>对岸（河宽 d={w} m）</title></line>
+                    {selected && (
+                      <>
+                        <line x1={p.x} y1={p.y} x2={p.x + fx * VSCALE} y2={p.y - fy * VSCALE} className="flow-arrow"><title>水流速度</title></line>
+                        <line x1={p.x} y1={p.y} x2={p.x + rx * VSCALE} y2={p.y - ry * VSCALE} className="resultant-arrow"><title>合速度</title></line>
+                      </>
+                    )}
+                  </>
+                );
+              })()}
+              {body.kind === 'circular' && (() => {
+                const r = (body.radius ?? 0) * cam.scale;
+                const th = body.phase ?? 0;
+                const start = w2s({ x: (body.pos.x ?? 0) + (body.radius ?? 0) * Math.cos(th), y: (body.pos.y ?? 0) + (body.radius ?? 0) * Math.sin(th) });
+                return (
+                  <>
+                    <circle cx={p.x} cy={p.y} r={r} className="circle-track" />
+                    <circle cx={p.x} cy={p.y} r={3} className="circle-center" />
+                    <circle cx={start.x} cy={start.y} r={10} className="body-circular" />
+                  </>
+                );
+              })()}
+              {tip && body.kind !== 'circular' && (
                 <>
                   <line x1={p.x} y1={p.y} x2={tip.x} y2={tip.y} className="velocity-arrow" />
                   <circle cx={tip.x} cy={tip.y} r={7} className="handle velocity"><title>初速度</title></circle>
                 </>
               )}
-              {body.kind === 'block' ? (
+              {body.kind === 'block' && (
                 <rect x={-16} y={-16} width={32} height={32} transform={`translate(${p.x} ${p.y}) rotate(${angle})`} className="body-block" />
-              ) : (
+              )}
+              {(body.kind === 'projectile' || body.kind === 'ball') && (
                 <circle cx={p.x} cy={p.y} r={12} className="body-projectile" />
+              )}
+              {body.kind === 'boat' && (
+                <path d={`M ${p.x - 12} ${p.y + 6} L ${p.x + 12} ${p.y + 6} L ${p.x + 7} ${p.y - 6} L ${p.x - 7} ${p.y - 6} Z`} className="body-boat" />
               )}
             </g>
           );
@@ -403,8 +538,19 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
       </div>
       <div className="canvas-status">
         <span>{store.snap.enabled ? '吸附' : '不吸附'} {store.snap.step} m · 点阵 {dotStep} m · 滚轮缩放 · 空白处拖动平移</span>
-        <span>{store.tool === 'measure' ? '测量：点击两点' : store.tool === 'select' ? '选中对象后可拖动控制柄' : `当前工具：${store.tool}`}</span>
+        {store.notice
+          ? <span className="notice">{store.notice}</span>
+          : <span>{store.tool === 'measure' ? '测量：点击两点' : store.tool === 'select' ? '选中对象后可拖动控制柄' : store.tool === 'block' ? '物块：点击已有斜面放置' : store.tool === 'field_polygon' ? '绘制多边形场区' : `当前工具：${store.tool}`}</span>}
+        {activeFields.length>1&&<span>合场：{activeFields.join(' + ')}</span>}
       </div>
+      {store.tool==='field_polygon' && <div className="polygon-actions">
+        <label>场类型 <select value={polygonKind} onChange={e=>setPolygonKind(e.target.value as FieldKind)}>
+          {Object.entries(FIELD_LABELS).map(([kind,label])=><option key={kind} value={kind}>{label}</option>)}
+        </select></label>
+        <span>点击画布添加顶点</span>
+        <button className="mini" disabled={polygon.length<3} onClick={finishPolygon}>闭合场区</button>
+        <button className="mini" onClick={()=>{setPolygon([]);dispatch({type:'tool',tool:'select'});}}>取消</button>
+      </div>}
     </div>
   );
 }

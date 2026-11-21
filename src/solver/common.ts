@@ -34,6 +34,8 @@ export type StageEval = {
   s0: number;
   u0: number;
   a: number;
+  /** 此阶段动摩擦力的大小除以质量（m/s²）。 */
+  frictionPerMass?: number;
   eval: (dt: number) => { s: number; u: number };
 };
 

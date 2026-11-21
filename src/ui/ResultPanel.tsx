@@ -31,7 +31,7 @@ function Report({ report, store, dispatch }: { report: CheckReport; store: Store
             className="link"
             onClick={() => {
               const parts = b.path.split('.');
-              if (['bodies', 'supports', 'contacts'].includes(parts[0])) dispatch({ type: 'select', id: parts[1] });
+              if (['bodies', 'supports', 'contacts', 'fields', 'links'].includes(parts[0])) dispatch({ type: 'select', id: parts[1] });
             }}
           >
             {describePath(store.present, b.path)}
@@ -51,6 +51,7 @@ export function ResultPanel({ store, dispatch, solution }: { store: Store; dispa
   const formal = store.formal;
   const showFormal = formal.status === 'ready' && formal.solution;
   const display = showFormal ? formal.solution : solution;
+  const crossings = display?.events.filter(event => event.kind === 'field_crossing') ?? [];
   const report = formal.status === 'stale' && formal.report ? formal.report : store.preview.report;
 
   return (
@@ -67,6 +68,14 @@ export function ResultPanel({ store, dispatch, solution }: { store: Store; dispa
           {report && report.blockers.length > 0 && <Report report={report} store={store} dispatch={dispatch} />}
           {display ? (
             <>
+              {display.notice && <div className="hint" role="status">{display.notice}</div>}
+              {!!crossings.length && <details className="field-crossings">
+                <summary>场区穿越 · {crossings.length} 次</summary>
+                {crossings.map((event, index) => <button key={index} onClick={() => {
+                  dispatch({ type: 'pause' });
+                  dispatch({ type: 'scrub', t: event.t });
+                }}>{fmtWith(event.t, 's')} · {event.label}</button>)}
+              </details>}
               <Answers solution={display} />
               {report && report.pending.length > 0 && <Report report={{ blockers: [], pending: report.pending }} store={store} dispatch={dispatch} />}
               <details className="steps">
