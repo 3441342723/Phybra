@@ -1,4 +1,8 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { Canvas } from '../src/ui/Canvas';
+import { initStore, reducer } from '../src/state/store';
 import { baseScene, makeAsk, makeBlock, makeContact, makeSupport } from '../src/model/factory';
 import { nearestSupport } from '../src/model/geometry';
 import { buildSurfaceTrack, trackLocalToGlobal } from '../src/model/track';
@@ -39,6 +43,14 @@ describe('连续轨道', () => {
     close(sol.evalAt(1.5).x, 5 + 1.875 * Math.cos(Math.PI / 6));
     close(sol.evalAt(1.5).y, 1.875 * Math.sin(Math.PI / 6));
     close(answer(sol, 'rest_t').value, 2);
+    for (const t of [1.5, 2.5]) {
+      const store = reducer(initStore(sc), { type: 'scrub', t });
+      const markup = renderToStaticMarkup(createElement(Canvas, {
+        store, solution: sol, dispatch: () => {},
+        edit: { begin() {}, transient() {}, end() {}, apply() {} },
+      }));
+      expect(markup.match(/<rect[^>]*class="body-block"[^>]*>/)?.[0]).toContain('rotate(-30)');
+    }
   });
 
   it('斜面连接斜面：两段使用不同摩擦，连接点不截断运动', () => {
@@ -62,6 +74,27 @@ describe('连续轨道', () => {
     close((u2 - u1) / 0.1, -5 - 0.2 * 10 * Math.cos(Math.PI / 6));
     expect(sol.events.some((e) => e.kind === 'end_of_support')).toBe(false);
     close(answer(sol, 'rest_t').value, Math.sqrt(2) + (5 * Math.sqrt(2)) / (5 + 0.2 * 10 * Math.cos(Math.PI / 6)));
+  });
+
+  it('播放使用绑定解析后的连接关系，不把原始分叉误作有效轨道', () => {
+    const sc = baseScene('绑定轨道位置');
+    const flat = makeSupport('horizontal', { x: 0, y: 0 }, 5, 0);
+    const up = makeSupport('incline', { x: 5, y: 0 }, 5, 30);
+    const down = makeSupport('incline', { x: 5, y: 0 }, 5, -30);
+    const block = makeBlock(flat.id, 0);
+    block.vel = { x: 5, y: 0 };
+    sc.supports = [flat, up, down];
+    sc.bodies = [block];
+    sc.contacts = sc.supports.map((s) => makeContact(block.id, s.id, 0.6, 0));
+    sc.params = [{ name: 'offset', value: 20, unit: 'length', min: 0, max: 30, step: 1 }];
+    sc.bindings = { [`supports.${down.id}.a.x`]: 'offset' };
+    const solution = ok(solve(sc));
+    const store = reducer(initStore(sc), { type: 'scrub', t: 1.5 });
+    const markup = renderToStaticMarkup(createElement(Canvas, {
+      store, solution, dispatch: () => {},
+      edit: { begin() {}, transient() {}, end() {}, apply() {} },
+    }));
+    expect(markup.match(/<rect[^>]*class="body-block"[^>]*>/)?.[0]).toContain('rotate(-30)');
   });
 
   it('分叉连接被明确拒绝，不猜测路径', () => {

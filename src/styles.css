@@ -108,7 +108,7 @@ textarea { width: 100%; resize: vertical; }
 .trajectory { fill: none; stroke: #7c3aed; stroke-width: 2; stroke-dasharray: 5 3; }
 .event-marker { fill: #7c3aed; }
 .event-label { font-size: 10px; fill: #7c3aed; }
-.moving-marker { fill: #f59e0b; stroke: #b45309; stroke-width: 2; }
+.initial-body { fill: none; stroke: #94a3b8; stroke-width: 1.5; stroke-dasharray: 4 3; }
 .moving-label { font-size: 11px; fill: #b45309; }
 .measure-line { stroke: #0891b2; stroke-width: 2; stroke-dasharray: 4 3; }
 .joint-marker { fill: #10b981; stroke: #047857; stroke-width: 1.5; }

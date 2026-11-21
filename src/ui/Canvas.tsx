@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Body, Scene, Solution, Support, Vec2 } from '../model/types';
 import { bodyWorld, nearestSupport, projectToSupport, supportDir, supportEnd, supportLength } from '../model/geometry';
 import { makeAsk, makeBlock, makeContact, makeProjectile, makeSupport } from '../model/factory';
 import { withField } from '../state/editing';
 import { snapPoint, snapValue } from '../model/snap';
+import { buildSurfaceTrack, trackSegmentAt } from '../model/track';
+import { resolveBindings } from '../model/paths';
 import type { Action, Camera, Store } from '../state/store';
 
 export type Edit = {
@@ -28,6 +30,12 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
   const [size, setSize] = useState({ w: 900, h: 520 });
   const scene = store.present;
   const cam = store.camera;
+  const track = useMemo(() => {
+    if (!solution || !scene.bodies[0]?.attach) return null;
+    const resolved = resolveBindings(scene);
+    const built = buildSurfaceTrack(resolved, resolved.bodies[0].attach!.support);
+    return built.segments.length ? built : null;
+  }, [scene, solution]);
 
   useEffect(() => {
     if (!ref.current) return;
@@ -246,13 +254,15 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
   const grid: React.ReactNode[] = [];
   const topLeft = s2w({ x: 0, y: 0 });
   const bottomRight = s2w({ x: size.w, y: size.h });
-  for (let x = Math.floor(topLeft.x); x <= Math.ceil(bottomRight.x); x++) {
-    const a = w2s({ x, y: 0 });
-    grid.push(<line key={`gx${x}`} x1={a.x} y1={0} x2={a.x} y2={size.h} className={x === 0 ? 'axis' : 'grid'} />);
+  let gridStep = 1;
+  while (gridStep * cam.scale < 20) gridStep *= 2;
+  for (let i = Math.floor(topLeft.x / gridStep); i <= Math.ceil(bottomRight.x / gridStep); i++) {
+    const a = w2s({ x: i * gridStep, y: 0 });
+    grid.push(<line key={`gx${i}`} x1={a.x} y1={0} x2={a.x} y2={size.h} className={i === 0 ? 'axis' : 'grid'} />);
   }
-  for (let y = Math.floor(bottomRight.y); y <= Math.ceil(topLeft.y); y++) {
-    const a = w2s({ x: 0, y });
-    grid.push(<line key={`gy${y}`} x1={0} y1={a.y} x2={size.w} y2={a.y} className={y === 0 ? 'axis' : 'grid'} />);
+  for (let i = Math.floor(bottomRight.y / gridStep); i <= Math.ceil(topLeft.y / gridStep); i++) {
+    const a = w2s({ x: 0, y: i * gridStep });
+    grid.push(<line key={`gy${i}`} x1={0} y1={a.y} x2={size.w} y2={a.y} className={i === 0 ? 'axis' : 'grid'} />);
   }
 
   const trajectory = solution ? solution.samples.map((st) => w2s({ x: st.x, y: st.y })) : [];
@@ -345,17 +355,23 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
                 </>
               )}
               {body.kind === 'block' ? (
-                <rect x={-16} y={-16} width={32} height={32} transform={`translate(${p.x} ${p.y}) rotate(${angle})`} className="body-block" />
+                <rect x={-16} y={-16} width={32} height={32} transform={`translate(${p.x} ${p.y}) rotate(${angle})`} className={moving ? 'initial-body' : 'body-block'} />
               ) : (
-                <circle cx={p.x} cy={p.y} r={12} className="body-projectile" />
+                <circle cx={p.x} cy={p.y} r={12} className={moving ? 'initial-body' : 'body-projectile'} />
               )}
-              <text x={p.x + 20} y={p.y + 22} className="obj-label">{body.name}</text>
+              <text x={p.x + 20} y={p.y + 22} className="obj-label">{body.name}{moving ? '（初始）' : ''}</text>
             </g>
           );
         })}
         {moving && (
-          <g>
-            <circle cx={w2s(moving).x} cy={w2s(moving).y} r={9} className="moving-marker" />
+          <g className="moving-body" pointerEvents="none">
+            {scene.bodies[0].kind === 'block' ? (
+              <rect x={-16} y={-16} width={32} height={32}
+                transform={`translate(${w2s(moving).x} ${w2s(moving).y}) rotate(${track ? -(trackSegmentAt(track, moving.s, moving.u).support.angleDeg ?? 0) : 0})`}
+                className="body-block" />
+            ) : (
+              <circle cx={w2s(moving).x} cy={w2s(moving).y} r={12} className="body-projectile" />
+            )}
             <text x={w2s(moving).x + 12} y={w2s(moving).y - 12} className="moving-label">
               t={moving.t.toFixed(2)}s
             </text>
