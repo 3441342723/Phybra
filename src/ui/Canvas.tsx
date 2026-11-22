@@ -6,7 +6,7 @@ import { FIELD_COLORS, FIELD_LABELS, hasGradient, shapeCenter, shapeVertices, tr
 import { resolveBindings } from '../model/paths';
 import { fmt } from '../model/units';
 import { FieldLayer } from './FieldLayer';
-import { withField } from '../state/editing';
+import { withField, withFields } from '../state/editing';
 import { snapPoint, snapValue } from '../model/snap';
 import { buildSurfaceTrack, trackSegmentAt } from '../model/track';
 import type { Action, Camera, Store } from '../state/store';
@@ -33,6 +33,7 @@ const VSCALE = 12;
 export function Canvas({ store, dispatch, solution, edit }: { store: Store; dispatch: (a: Action) => void; solution: Solution | null; edit: Edit }) {
   const ref = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
+  const activePointer = useRef<number | null>(null);
   const [size, setSize] = useState({ w: 900, h: 520 });
   const [polygon, setPolygon] = useState<Vec2[]>([]);
   const [polygonKind, setPolygonKind] = useState<FieldKind>('uniform_gravity');
@@ -185,6 +186,8 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
   }
 
   function onPointerDown(e: React.PointerEvent) {
+    if (activePointer.current !== null || (e.button !== 0 && e.button !== 1)) return;
+    activePointer.current = e.pointerId;
     try {
       (e.currentTarget as Element).setPointerCapture(e.pointerId);
     } catch {
@@ -230,7 +233,7 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
 
   function onPointerMove(e: React.PointerEvent) {
     const d = drag.current;
-    if (!d) return;
+    if (!d || activePointer.current !== e.pointerId) return;
     const p = local(e);
     if (d.kind === 'pan') {
       dispatch({ type: 'camera', camera: { ...d.cam, ox: d.cam.ox + (p.x - d.startX), oy: d.cam.oy + (p.y - d.startY) } });
@@ -286,13 +289,13 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
         const oldLen = supportLength(sup);
         const len = Math.max(0.2, Math.hypot(dx, dy));
         const newLen = Number(len.toFixed(3));
-        next = withField(next, `supports.${d.id}.length`, newLen);
-        next = withField(next, `supports.${d.id}.angleDeg`, Number(((Math.atan2(dy, dx) * 180) / Math.PI).toFixed(2)));
+        const updates: [string, unknown][] = [[`supports.${d.id}.length`, newLen]];
+        if (sup.kind === 'incline') updates.push([`supports.${d.id}.angleDeg`, Number(((Math.atan2(dy, dx) * 180) / Math.PI).toFixed(2))]);
         for (const body of scene.bodies) {
           if (body.attach?.support !== d.id || body.attach.s === null) continue;
-          if (body.attach.s >= oldLen - 1e-6) next = withField(next, `bodies.${body.id}.attach.s`, newLen);
-          else if (body.attach.s > newLen) next = withField(next, `bodies.${body.id}.attach.s`, newLen);
+          if (body.attach.s >= oldLen - 1e-6 || body.attach.s > newLen) updates.push([`bodies.${body.id}.attach.s`, newLen]);
         }
+        next = withFields(next, updates);
       }
     } else if (d.kind === 'velocity') {
       const body = scene.bodies.find((b) => b.id === d.id)!;
@@ -310,19 +313,22 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
     if (next !== scene) edit.transient(next);
   }
 
-  function onPointerUp() {
+  function onPointerUp(e: React.PointerEvent) {
+    if (activePointer.current !== e.pointerId) return;
     const d = drag.current;
     drag.current = null;
+    activePointer.current = null;
     if (d && d.kind !== 'pan') edit.end();
   }
 
-  function onWheel(e: React.WheelEvent) {
-    e.preventDefault();
-    const p = local(e);
+  function zoomAt(p: Vec2, factor: number) {
     const before = s2w(p);
-    const scale = Math.min(400, Math.max(6, cam.scale * Math.exp(-e.deltaY * 0.0012)));
-    const nextCam = { scale, ox: p.x - before.x * scale, oy: p.y + before.y * scale };
-    dispatch({ type: 'camera', camera: nextCam });
+    const scale = Math.min(400, Math.max(6, cam.scale * factor));
+    dispatch({ type: 'camera', camera: { scale, ox: p.x - before.x * scale, oy: p.y + before.y * scale } });
+  }
+
+  function onWheel(e: React.WheelEvent) {
+    zoomAt(local(e), Math.exp(-e.deltaY * 0.0012));
   }
 
   let dotStep = store.snap.step;
@@ -430,6 +436,7 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onLostPointerCapture={onPointerUp}
         onWheel={onWheel}
         className={`tool-${store.tool}`}
       >
@@ -558,6 +565,10 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
         )}
         <CanvasLabels labels={labels} obstacles={obstacles} size={size} />
       </svg>
+      <div className="canvas-controls">
+        <button aria-label="放大画布" onClick={() => zoomAt({ x: size.w / 2, y: size.h / 2 }, 1.25)}>+</button>
+        <button aria-label="缩小画布" onClick={() => zoomAt({ x: size.w / 2, y: size.h / 2 }, 0.8)}>−</button>
+      </div>
       </div>
       <div className="canvas-status">
         <span>{store.snap.enabled ? '吸附' : '不吸附'} {store.snap.step} m · 点阵 {dotStep} m · 滚轮缩放 · 空白处拖动平移</span>

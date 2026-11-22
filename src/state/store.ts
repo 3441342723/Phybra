@@ -77,6 +77,7 @@ function physicsChanged(state: Store, scene: Scene): Store {
   return {
     ...state,
     present: scene,
+    confirmDelete: null,
     playback: { mode: 'idle', t: 0 },
     formal: state.formal.status === 'none' ? state.formal : { ...state.formal, status: 'stale' },
   };
@@ -105,7 +106,7 @@ export function reducer(state: Store, action: Action): Store {
     case 'beginGesture':
       return { ...state, gestureBase: state.present };
     case 'transient':
-      return physicsChanged(state, action.scene);
+      return action.scene === state.present ? state : physicsChanged(state, action.scene);
     case 'endGesture': {
       if (!state.gestureBase) return state;
       const changed = state.gestureBase !== state.present;
@@ -117,7 +118,7 @@ export function reducer(state: Store, action: Action): Store {
       };
     }
     case 'apply':
-      return commit(state, action.scene);
+      return action.scene === state.present ? state : commit(state, action.scene);
     case 'load':
       return { ...physicsChanged(state, action.scene), past: [], future: [], gestureBase: null, selection: null };
     case 'undo': {
