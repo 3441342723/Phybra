@@ -40,6 +40,18 @@ export function clampRect(rect: WindowRect, width: number, height: number): Wind
   };
 }
 
+export const NARROW_WIDTH = 760;
+
+export function workspaceLayout(layout: WindowLayout, width: number, height: number, drawer: WindowId | null): WindowLayout {
+  return {
+    ...layout,
+    rects: Object.fromEntries(WINDOW_IDS.map((id) => [id, clampRect(layout.rects[id], width, height)])) as WindowLayout['rects'],
+    open: width <= NARROW_WIDTH
+      ? Object.fromEntries(WINDOW_IDS.map((id) => [id, id === drawer])) as WindowLayout['open']
+      : layout.open,
+  };
+}
+
 export function fitPlaybackCamera(camera: Camera, points: Vec2[], layout: WindowLayout, width: number, height: number): Camera {
   if (!points.length || width <= 64 || height <= 64) return camera;
   const minX = Math.min(...points.map((p) => p.x));
