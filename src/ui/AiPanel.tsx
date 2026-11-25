@@ -22,6 +22,9 @@ export function AiPanel({ store, dispatch, onClose }: { store: Store; dispatch: 
   const close = () => {
     requestRef.current?.controller.abort();
     requestRef.current = null;
+    // generate()'s finally only clears busy for its own request id, so cancelling
+    // here must reset it or the panel stays disabled after reopening.
+    setBusy(false);
     dispatch({ type: 'setDraft', draft: null });
     onClose();
   };
