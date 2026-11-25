@@ -85,4 +85,4 @@ VITE_AI_ENDPOINT=https://your-backend.example/api/interpret
 - `src/ai`：AI 接口客户端与演示草稿。
 - `tests`：自动测试。
 
-完整方向和部署计划见 [PLAN.md](./PLAN.md)。
+完整方向和部署计划见 [PLAN.md](./PLAN.md)；P3 的实现、验证和后续交接见 [P3-HANDOFF.md](./P3-HANDOFF.md)。
