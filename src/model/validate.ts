@@ -19,6 +19,16 @@ export function validateScene(scene: Scene): CheckReport {
   const blockers: CheckReport['blockers'] = [];
   const pending: CheckReport['pending'] = [];
   const push = (code: any, path: string, message: string) => blockers.push({ code, path, message });
+  if (scene.dimension !== undefined && scene.dimension !== '2d' && scene.dimension !== '3d') push('unsupported_combo','dimension','无法识别坐标维度。');
+  if(scene.dimension!=='3d') {
+    const nonzero=(value:unknown)=>value!==undefined&&value!==0;
+    for(const b of scene.bodies) {
+      if((b.pos.z!==undefined&&b.pos.z!==0)||(b.vel.z!==undefined&&b.vel.z!==0))push('unsupported_combo','bodies.'+b.id+'.pos.z','此物体有空间位置或速度，请启用三维坐标，或在三维属性中将 z、vz 设为 0。');
+    }
+    for(const f of scene.fields??[]) {
+      if(f.enabled&&[f.position.z,f.vector.z,f.bx,f.by,f.gradient?.z].some(nonzero))push('unsupported_combo','fields.'+f.id,'此场有三维分量，请启用三维坐标，或在三维属性中将新增分量设为 0。');
+    }
+  }
 
   if (scene.bodies.length === 0) push('missing_required', 'bodies', '场景为空：请添加一个物体，或使用 AI 建模');
   if (scene.bodies.length > 1 && !(scene.bodies.length === 2 && scene.bodies.every(b=>b.kind==='ball'))) push('unsupported_combo', 'bodies', '多物体目前支持两个小球的光滑碰撞。');
@@ -84,5 +94,6 @@ export const SUPPORTED_TYPES = [
   { id: 'composition', label: '运动的合成与分解（小船渡河：最短时间/最短位移）' },
   { id: 'circular', label: '匀速圆周运动（线速度/角速度/周期/向心加速度/向心力）' },
   { id: 'field', label: '小球与场（重力、电场、磁场、点源）及单根定点绳杆' },
+  { id: 'field-3d', label: '单小球三维自由运动（全局重力、电场、匀强磁场、点源，可叠加）' },
   { id: 'collision', label: '两个小球的弹性/非弹性正碰、追碰与二维斜碰（无外场、无转动）' },
 ];

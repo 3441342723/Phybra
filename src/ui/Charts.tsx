@@ -43,29 +43,33 @@ export function Charts({ solution, t }: { solution: Solution | null; t: number }
     }
     const samples = solution.samples;
     const isEnergy = chartMode === 'energy';
-    const twoD = solution.template === 'projectile' || solution.template === 'composition' || solution.template === 'circular' || solution.template === 'field';
+    const spatial = solution.template === 'field-3d';
+    const twoD = spatial || solution.template === 'projectile' || solution.template === 'composition' || solution.template === 'circular' || solution.template === 'field';
     const posSeries = twoD
       ? [
           { name: 'x (m)', data: samples.map((s) => [s.t, s.x]) },
           { name: 'y (m)', data: samples.map((s) => [s.t, s.y]) },
+          ...(spatial?[{name:'z (m)',data:samples.map(s=>[s.t,s.z??0])}]:[]),
         ]
       : [{ name: solution.template === 'incline-friction' ? '沿面位置 s (m)' : '位置 x (m)', data: samples.map((s) => [s.t, solution.template === 'incline-friction' ? s.s : s.x]) }];
     const velSeries = twoD
       ? [
           { name: 'vx (m/s)', data: samples.map((s) => [s.t, s.vx]) },
           { name: 'vy (m/s)', data: samples.map((s) => [s.t, s.vy]) },
-          { name: '|v| (m/s)', data: samples.map((s) => [s.t, Math.hypot(s.vx, s.vy)]) },
+          ...(spatial?[{name:'vz (m/s)',data:samples.map(s=>[s.t,s.vz??0])}]:[]),
+          { name: '|v| (m/s)', data: samples.map((s) => [s.t, Math.hypot(s.vx, s.vy, spatial?s.vz??0:0)]) },
         ]
       : solution.template === 'incline-friction'
         ? [{ name: '沿面速度 u (m/s)', data: samples.map((s) => [s.t, s.u ?? 0]) }]
         : [{ name: '速度 v (m/s)', data: samples.map((s) => [s.t, s.vx]) }];
     const curves: { name: string; data: (number | null)[][]; color?: string }[] = isEnergy && energy?.status === 'ready'
       ? ENERGY_METRICS.filter(({ key }) => energy.samples.some((s) => s[key] !== null)).map(({ key, name, color }) => ({
-          name: key==='dissipated'&&solution.template==='collision'?'碰撞耗散':key==='kinetic'&&solution.template==='collision'?'系统总动能':key === 'potential' && solution.template === 'field' ? '势能' : name, color, data: energy.samples.map((s) => [s.t, s[key]]),
+          name: key==='dissipated'&&solution.template==='collision'?'碰撞耗散':key==='kinetic'&&solution.template==='collision'?'系统总动能':key === 'potential' && (solution.template === 'field'||spatial) ? '势能' : name, color, data: energy.samples.map((s) => [s.t, s[key]]),
         }))
       : chartMode === 'accel' ? [
           {name:'ax (m/s²)',data:samples.map(s=>[s.t,s.ax??null])},
           {name:'ay (m/s²)',data:samples.map(s=>[s.t,s.ay??null])},
+          ...(spatial?[{name:'az (m/s²)',data:samples.map(s=>[s.t,s.az??null])}]:[]),
         ] : solution.bodyTracks ? solution.bodyTracks.flatMap(track=>chartMode==='pos'?[
           {name:track.name+' · x (m)',data:track.samples.map(s=>[s.t,s.x])},
           {name:track.name+' · y (m)',data:track.samples.map(s=>[s.t,s.y])},

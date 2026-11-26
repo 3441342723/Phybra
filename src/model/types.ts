@@ -1,4 +1,6 @@
 export type Vec2 = { x: number; y: number };
+export type Vec3 = Vec2 & { z: number };
+export type SpatialVector = Vec2 & { z?: number };
 /** null = 未知/未赋值。未知量保留为空，绝不默认成 0。 */
 export type Num = number | null;
 
@@ -12,9 +14,9 @@ export type Body = {
   /** 依附于支撑面时，位置用沿面弧长 s（自 a 端指向 b 端，米）表示 */
   attach: { support: string; s: Num } | null;
   /** block/projectile/boat 为物体位置；circular 为圆心 */
-  pos: { x: Num; y: Num };
+  pos: { x: Num; y: Num; z?: Num };
   /** boat 表示船相对水的速度；circular 不使用（由 omega/radius 推导） */
-  vel: { x: Num; y: Num };
+  vel: { x: Num; y: Num; z?: Num };
   mass: Num;
   charge?: Num;
   /** Missing in older scenes: infer from the charge value. Off preserves the input for later editing. */
@@ -47,12 +49,14 @@ export type Field = {
   kind: FieldKind;
   enabled: boolean;
   shape: FieldShape;
-  position: Vec2;
-  vector: Vec2;
+  position: SpatialVector;
+  vector: SpatialVector;
   /** For a rectangular electric field: U = V(negative axis edge) - V(positive axis edge). */
   plates?: { axis: 'x' | 'y'; voltage: Num } | null;
   /** Linear spatial slopes measured from position. For g/E each component varies only along its own axis. */
-  gradient?: { x: Num; y: Num } | null;
+  gradient?: { x: Num; y: Num; z?: Num } | null;
+  bx?: number;
+  by?: number;
   bz: number;
   sourceStrength: number;
   cutoffRadius: number;
@@ -129,6 +133,8 @@ export type Param = {
 
 export type Scene = {
   version: 2;
+  /** Older scenes are two dimensional. Three dimensional scenes use explicit placed fields. */
+  dimension?: '2d' | '3d';
   rev: number;
   title: string;
   gravity: Num;
@@ -177,7 +183,7 @@ export type DerivationStep = {
   note?: string;
 };
 
-export type Sample = { t: number; x: number; y: number; vx: number; vy: number; s: number; u?: number; ax?: number; ay?: number; fieldIds?: string[] };
+export type Sample = { t: number; x: number; y: number; z?: number; vx: number; vy: number; vz?: number; s: number; u?: number; ax?: number; ay?: number; az?: number; fieldIds?: string[] };
 
 export type Stage = {
   label: string;
@@ -210,7 +216,7 @@ export type EnergyAnalysis =
     };
 
 export type Solution = {
-  template: 'kinematics-1d' | 'projectile' | 'incline-friction' | 'composition' | 'circular' | 'field' | 'collision';
+  template: 'kinematics-1d' | 'projectile' | 'incline-friction' | 'composition' | 'circular' | 'field' | 'field-3d' | 'collision';
   sceneRev: number;
   tEnd: number;
   stages: Stage[];

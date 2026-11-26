@@ -31,7 +31,7 @@ export function makeProjectile(x = 0, y = 2, vx = 6, vy = 8): Body {
 }
 
 export function makeBall(position: Vec2, charge = 0, vx = 0, vy = 0): Body {
-  return { ...makeProjectile(position.x, position.y, vx, vy), kind: 'ball', name: '小球', mass: 1, charge, collisionRadius: 0.25 };
+  return { ...makeProjectile(position.x, position.y, vx, vy), kind: 'ball', name: '小球', pos:{...position,z:0},vel:{x:vx,y:vy,z:0},mass: 1, charge, collisionRadius: 0.25 };
 }
 
 export function makeField(kind: FieldKind, position: Vec2, shape: FieldShape = defaultShape(
@@ -40,7 +40,7 @@ export function makeField(kind: FieldKind, position: Vec2, shape: FieldShape = d
   return {
     id: uid('f'), kind, name: FIELD_LABELS[kind], enabled: true, position, shape,
     vector: kind === 'uniform_gravity' ? { x: 0, y: -9.8 } : { x: 0, y: -2 },
-    bz: 1, sourceStrength: kind === 'point_mass' ? 1e11 : 1e-9, cutoffRadius: 0.001,
+    bx:0,by:0,bz: 1, sourceStrength: kind === 'point_mass' ? 1e11 : 1e-9, cutoffRadius: 0.001,
   };
 }
 
@@ -261,6 +261,26 @@ function editableCircularExample(): Scene {
 }
 
 export const DEFAULT_COLLISION = {restitution:1,afterCollision:3} as const;
+
+export function spatialExample(kind:'helix'|'tilted'|'electric'): Scene {
+  const scene=baseScene(kind==='helix'?'匀强磁场中的螺旋运动':kind==='tilted'?'倾斜磁场中的空间运动':'空间电场加速');
+  scene.dimension='3d';
+  const ball=makeBall({x:0,y:2},1,3,0);
+  ball.pos.z=0;ball.vel.z=1;ball.charged=true;
+  const field=makeField(kind==='electric'?'uniform_electric':'uniform_magnetic',{x:0,y:0},{kind:'global'});
+  field.vector={x:0,y:0,z:2};field.position.z=0;
+  if(kind==='tilted'){field.bx=1;field.by=1;field.bz=1;}
+  scene.bodies=[ball];scene.fields=[field];
+  scene.fieldPlayback={...DEFAULT_FIELD_PLAYBACK,duration:kind==='electric'?3:4*Math.PI/(kind==='tilted'?Math.sqrt(3):1)};
+  scene.asks=[makeAsk('at_time',{t:1}),makeAsk('energy_at',{energyFrom:{kind:'time',t:1}})];
+  return scene;
+}
+
+export const SPATIAL_EXAMPLES = [
+  {id:'spatial-helix',title:'磁场中的螺旋运动',build:()=>spatialExample('helix')},
+  {id:'spatial-tilted',title:'倾斜磁场中的空间运动',build:()=>spatialExample('tilted')},
+  {id:'spatial-electric',title:'空间电场加速',build:()=>spatialExample('electric')},
+];
 
 export function collisionExample(kind:'elastic'|'inelastic'|'chase'|'oblique'): Scene {
   const titles={elastic:'等质量弹性对碰',inelastic:'完全非弹性正碰',chase:'不等质量追碰',oblique:'二维弹性斜碰'};

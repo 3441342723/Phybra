@@ -151,11 +151,11 @@ export const collisionTemplate: Template = {
         ...(tc>0?[{label:'碰前运动',t0:0,t1:tc}]:[]),{label:stationary?'碰后静止':'碰后运动',t0:tc,t1:tEnd}],
       events:tc===null?[]:[{kind:'collision',t:tc,label:'两球碰撞'}],
       steps:[
-        {title:'由相对运动求首次接触',formula:'\left|\vec r_2-\vec r_1+(\vec u_2-\vec u_1)t_c\right|=R_1+R_2',note:'取靠近时的第一个非负根，擦边且无冲量不算碰撞。'},
-        {title:'沿接触法线计算冲量',formula:'J=-\frac{(1+e)(\vec u_2-\vec u_1)\cdot\vec n}{1/m_1+1/m_2}',note:'e=1 为弹性，0<e<1 为非弹性；e=0 的正碰共速，斜碰仍保留相对切向速度。'},
-        {title:'两球速度与动量守恒',formula:'\vec v_1=\vec u_1-\frac{J}{m_1}\vec n,\quad\vec v_2=\vec u_2+\frac{J}{m_2}\vec n,\quad\sum m_i\vec u_i=\sum m_i\vec v_i'},
-        {title:'计算动能损失',formula:'\Delta E_k=\frac12\frac{m_1m_2}{m_1+m_2}(1-e^2)\left[(\vec u_2-\vec u_1)\cdot\vec n\right]^2'},
-      ],formulas:[{label:'恢复系数',latex:'e=-\frac{(\vec v_2-\vec v_1)\cdot\vec n}{(\vec u_2-\vec u_1)\cdot\vec n}'}],
+        {title:'由相对运动求首次接触',formula:'\\left|\\vec r_2-\\vec r_1+(\\vec u_2-\\vec u_1)t_c\\right|=R_1+R_2',note:'取靠近时的第一个非负根，擦边且无冲量不算碰撞。'},
+        {title:'沿接触法线计算冲量',formula:'J=-\\frac{(1+e)(\\vec u_2-\\vec u_1)\\cdot\\vec n}{1/m_1+1/m_2}',note:'e=1 为弹性，0<e<1 为非弹性；e=0 的正碰共速，斜碰仍保留相对切向速度。'},
+        {title:'两球速度与动量守恒',formula:'\\vec v_1=\\vec u_1-\\frac{J}{m_1}\\vec n,\\quad\\vec v_2=\\vec u_2+\\frac{J}{m_2}\\vec n,\\quad\\sum m_i\\vec u_i=\\sum m_i\\vec v_i'},
+        {title:'计算动能损失',formula:'\\Delta E_k=\\frac12\\frac{m_1m_2}{m_1+m_2}(1-e^2)\\left[(\\vec u_2-\\vec u_1)\\cdot\\vec n\\right]^2'},
+      ],formulas:[{label:'恢复系数',latex:'e=-\\frac{(\\vec v_2-\\vec v_1)\\cdot\\vec n}{(\\vec u_2-\\vec u_1)\\cdot\\vec n}'}],
     }};
   },
 };

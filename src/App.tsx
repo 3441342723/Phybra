@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { baseScene, COLLISION_EXAMPLES, ELECTROMAGNETIC_EXAMPLES, EXAMPLES, inclineExample } from './model/factory';
+import { baseScene, COLLISION_EXAMPLES, ELECTROMAGNETIC_EXAMPLES, EXAMPLES, inclineExample, SPATIAL_EXAMPLES } from './model/factory';
 import { getAt } from './model/paths';
 import { solve } from './solver';
 import { activeSolution, initStore, reducer, type Store } from './state/store';
@@ -15,6 +15,8 @@ import { ResultPanel } from './ui/ResultPanel';
 import { AiPanel } from './ui/AiPanel';
 import { FloatingWindow } from './ui/FloatingWindow';
 import { Toolbar } from './ui/Toolbar';
+import { SpatialCanvas } from './ui/SpatialCanvas';
+import { fitSpatialCamera, withDimension } from './state/spatial';
 
 export default function App() {
   const [store, dispatch] = useReducer(reducer, undefined, () => initStore(loadScene() ?? inclineExample(), loadCamera() ?? undefined, loadSnap() ?? undefined, loadPlaybackRate()));
@@ -197,7 +199,8 @@ export default function App() {
     if (!sol) return;
     const rect = workspaceRef.current?.getBoundingClientRect();
     if (rect) {
-      const camera = fitPlaybackCamera(st.camera, sol.bodyTracks?.flatMap(track=>track.samples)??sol.samples,
+      const points = sol.bodyTracks?.flatMap(track=>track.samples)??sol.samples;
+      const camera = (st.present.dimension==='3d'?fitSpatialCamera:fitPlaybackCamera)(st.camera, points,
         workspaceLayout(layout, rect.width, rect.height, null), rect.width, rect.height);
       if (camera !== st.camera) dispatch({ type: 'camera', camera });
     }
@@ -273,7 +276,7 @@ export default function App() {
           aria-label="载入示例"
           defaultValue=""
           onChange={(e) => {
-            const ex = [...EXAMPLES, ...ELECTROMAGNETIC_EXAMPLES, ...COLLISION_EXAMPLES].find((x) => x.id === e.target.value);
+            const ex = [...EXAMPLES, ...ELECTROMAGNETIC_EXAMPLES, ...COLLISION_EXAMPLES, ...SPATIAL_EXAMPLES].find((x) => x.id === e.target.value);
             if (ex) dispatch({ type: 'load', scene: ex.build() });
             e.target.value = '';
           }}
@@ -282,6 +285,7 @@ export default function App() {
           <optgroup label="力学">{EXAMPLES.map((ex) => <option key={ex.id} value={ex.id}>{ex.title}</option>)}</optgroup>
           <optgroup label="电磁学">{ELECTROMAGNETIC_EXAMPLES.map((ex) => <option key={ex.id} value={ex.id}>{ex.title}</option>)}</optgroup>
           <optgroup label="碰撞">{COLLISION_EXAMPLES.map((ex) => <option key={ex.id} value={ex.id}>{ex.title}</option>)}</optgroup>
+          <optgroup label="三维运动">{SPATIAL_EXAMPLES.map((ex) => <option key={ex.id} value={ex.id}>{ex.title}</option>)}</optgroup>
         </select>
         <button disabled={!store.past.length} onClick={() => dispatch({ type: 'undo' })}>撤销</button>
         <button disabled={!store.future.length} onClick={() => dispatch({ type: 'redo' })}>重做</button>
@@ -309,7 +313,8 @@ export default function App() {
         <button className="primary" onClick={solveNow}>检查并求解</button>
       </header>
 
-      <Toolbar tool={store.tool} snap={store.snap} layout={viewLayout} dispatch={dispatch} onOpen={openWindow} onReset={resetWindows} />
+      <Toolbar tool={store.tool} snap={store.snap} layout={viewLayout} dimension={store.present.dimension} dispatch={dispatch} onOpen={openWindow} onReset={resetWindows}
+        onDimension={dimension=>{dispatch({type:'apply',scene:withDimension(store.present,dimension)});dispatch({type:'tool',tool:'select'});}} />
       {narrow && (
         <nav className="panel-tabs" aria-label="工作区面板">
           {WINDOW_IDS.map((id) => (
@@ -322,7 +327,7 @@ export default function App() {
 
       <main className="workspace" ref={workspaceRef}>
         <section className="center">
-          <Canvas store={store} dispatch={dispatch} solution={solution} edit={edit} />
+          {store.present.dimension==='3d'?<SpatialCanvas store={store} dispatch={dispatch} solution={solution} edit={edit} layout={viewLayout} />:<Canvas store={store} dispatch={dispatch} solution={solution} edit={edit} />}
         </section>
         {WINDOW_IDS.map((id) => (
           <FloatingWindow key={id} drawer={narrow} visible={viewLayout.open[id]}

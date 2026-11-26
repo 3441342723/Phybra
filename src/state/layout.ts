@@ -52,13 +52,13 @@ export function workspaceLayout(layout: WindowLayout, width: number, height: num
   };
 }
 
-export function fitPlaybackCamera(camera: Camera, points: Vec2[], layout: WindowLayout, width: number, height: number): Camera {
+export function fitPlaybackCamera(camera: Camera, points: Vec2[], layout: WindowLayout, width: number, height: number, obstacles: WindowRect[] = []): Camera {
   if (!points.length || width <= 64 || height <= 64) return camera;
   const minX = Math.min(...points.map((p) => p.x));
   const maxX = Math.max(...points.map((p) => p.x));
   const minY = Math.min(...points.map((p) => p.y));
   const maxY = Math.max(...points.map((p) => p.y));
-  const panels = WINDOW_IDS.filter((id) => layout.open[id]).map((id) => layout.rects[id]);
+  const panels = [...WINDOW_IDS.filter((id) => layout.open[id]).map((id) => layout.rects[id]), ...obstacles];
   const intersects = (left: number, top: number, right: number, bottom: number) => panels.some((r) =>
     left < r.x + r.w && right > r.x && top < r.y + r.h && bottom > r.y);
   if (points.every((p, i) => {
@@ -90,6 +90,7 @@ export function fitPlaybackCamera(camera: Camera, points: Vec2[], layout: Window
           bestScale = scale;
           bestArea = w * h;
           best = {
+            ...camera,
             scale,
             ox: (xs[i] + xs[j]) / 2 - (minX + maxX) * scale / 2,
             oy: (ys[k] + ys[l]) / 2 + (minY + maxY) * scale / 2,

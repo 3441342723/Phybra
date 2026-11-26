@@ -132,6 +132,13 @@ textarea { width: 100%; resize: vertical; }
 .grid { stroke: color-mix(in srgb, var(--site-bg) 55%, var(--site-surface)); stroke-width: 1; }
 .grid-dot { fill: var(--site-border); pointer-events: none; }
 .axis { stroke: color-mix(in srgb, var(--site-border) 70%, var(--site-muted)); stroke-width: 1.2; }
+.spatial-background { fill: var(--site-surface); }
+.spatial-drop { stroke: #94a3b8; stroke-width: 1; stroke-dasharray: 4 4; }
+.spatial-axes text, .spatial-compass text { font: 600 13px var(--site-font); paint-order: stroke; stroke: var(--site-surface); stroke-width: 3px; }
+.spatial-compass > rect { fill: var(--site-surface); fill-opacity: .94; stroke: var(--site-border); }
+.spatial-field { cursor: move; }
+.spatial-controls { position: absolute; left: 12px; bottom: 12px; display: flex; flex-wrap: wrap; gap: 4px; max-width: calc(100% - 150px); }
+.spatial-controls button { background: var(--site-surface); font-size: 12px; }
 .support-line { stroke: color-mix(in srgb, var(--site-fg) 72%, var(--site-surface)); stroke-width: 3; }
 .hatch { stroke: color-mix(in srgb, var(--site-muted) 60%, var(--site-surface)); stroke-width: 1; }
 .canvas-labels { pointer-events: none; }

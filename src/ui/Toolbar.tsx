@@ -12,10 +12,12 @@ const GROUPS: { id: string; label: string; tools: { id: ToolId; label: string }[
 
 const WINDOW_LABELS: Record<WindowId, string> = { objects: '对象与代数', properties: '属性', result: '答案与推导', charts: '曲线', ai: 'AI 建模' };
 
-export function Toolbar({ tool, snap, layout, dispatch, onOpen, onReset }: {
+export function Toolbar({ tool, snap, layout, dimension, dispatch, onOpen, onReset, onDimension }: {
   tool: ToolId;
   snap: SnapSettings;
   layout: WindowLayout;
+  dimension?: '2d' | '3d';
+  onDimension: (dimension: '2d' | '3d') => void;
   dispatch: (action: Action) => void;
   onOpen: (id: WindowId) => void;
   onReset: () => void;
@@ -27,13 +29,13 @@ export function Toolbar({ tool, snap, layout, dispatch, onOpen, onReset }: {
 
   return (
     <div className="toolbar">
-      {GROUPS.map((group) => {
+      {GROUPS.filter(group=>dimension!=='3d'||group.id!=='measure').map((group) => {
         const current = group.tools.find((item) => item.id === tool);
         return (
           <details className="toolbar-menu" key={group.id}>
             <summary className={current ? 'active' : ''} title={current?.label}>{group.label}{current && <span className="toolbar-current"> · {current.label}</span>}</summary>
             <div className="menu-popover">
-              {group.tools.map((item) => (
+              {group.tools.filter(item=>dimension!=='3d'||!['block','incline','rope','rod','field_polygon','measure'].includes(item.id)).map((item) => (
                 <button key={item.id} className={tool === item.id ? 'active' : ''} onClick={(e) => choose(item.id, e.currentTarget)}>{item.label}</button>
               ))}
             </div>
@@ -41,8 +43,13 @@ export function Toolbar({ tool, snap, layout, dispatch, onOpen, onReset }: {
         );
       })}
       <details className="toolbar-menu">
-        <summary>视图 · 吸附 {snap.enabled ? snap.step : '关'}</summary>
+        <summary>视图{dimension==='3d'?' · 三维':''} · 吸附 {snap.enabled ? snap.step : '关'}</summary>
         <div className="menu-popover view-menu">
+          <label>坐标维度</label>
+          <select aria-label="坐标维度" value={dimension ?? '2d'} onChange={e=>onDimension(e.target.value as '2d'|'3d')}>
+            <option value="2d">二维 · x、y</option>
+            <option value="3d">三维 · x、y、z</option>
+          </select>
           <button className={snap.enabled ? 'active' : ''} onClick={() => dispatch({ type: 'snap', snap: { ...snap, enabled: !snap.enabled } })}>{snap.enabled ? '✓ 网格吸附' : '开启网格吸附'}</button>
           <label>吸附步长（米）</label>
           <select value={snap.step} onChange={(e) => dispatch({ type: 'snap', snap: { ...snap, step: Number(e.target.value) } })}>

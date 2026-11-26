@@ -1,9 +1,10 @@
 import type { CheckReport, Scene, SceneDraft, Solution, Vec2 } from '../model/types';
 import type { SnapSettings } from '../model/snap';
+import type { Rotation } from '../model/projection';
 
 export type ToolId = 'select' | 'pan' | 'block' | 'ball' | 'rope' | 'rod' | 'incline' | 'velocity' | 'measure'
   | 'uniform_gravity' | 'uniform_electric' | 'uniform_magnetic' | 'point_mass' | 'point_charge' | 'field_polygon';
-export type Camera = { scale: number; ox: number; oy: number };
+export type Camera = { scale: number; ox: number; oy: number; rotation?: Rotation };
 
 export type SolveSlot = {
   status: 'none' | 'stale' | 'ready';

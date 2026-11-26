@@ -52,7 +52,11 @@ export function loadCamera(): Camera | null {
     const raw = localStorage.getItem(VIEW_KEY);
     if (!raw) return null;
     const c = JSON.parse(raw);
-    return typeof c?.scale === 'number' ? c : null;
+    if (!c || ![c.scale,c.ox,c.oy].every(Number.isFinite) || c.scale <= 0) return null;
+    const rotation = c.rotation;
+    return {scale:c.scale,ox:c.ox,oy:c.oy,...(rotation&&Number.isFinite(rotation.yaw)&&Number.isFinite(rotation.pitch)?{
+      rotation:{yaw:Math.max(-70,Math.min(70,rotation.yaw)),pitch:Math.max(-65,Math.min(65,rotation.pitch))},
+    }:{})};
   } catch {
     return null;
   }

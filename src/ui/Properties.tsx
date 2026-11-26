@@ -43,9 +43,9 @@ export function Properties({ store, dispatch, fields }: { store: Store; dispatch
       onCommit={(duration)=>setPlayback({duration:duration??DEFAULT_FIELD_PLAYBACK.duration})} onTransient={()=>{}} />
     <label className="field-control">出场策略
       <select value={playback.exit} onChange={e=>setPlayback({exit:e.target.value as FieldPlayback['exit'],fieldId:playback.fieldId??eligible[0]?.id??null})}>
-        <option value="continue">继续穿越（记录并集首次出口）</option>
-        <option value="field" disabled={!eligible.length}>首次离开指定场区</option>
-        <option value="union" disabled={!eligible.length}>首次离开所有有限场区</option>
+        <option value="continue">{scene.dimension==='3d'?'按时长演示（全局场）':'继续穿越（记录并集首次出口）'}</option>
+        <option value="field" disabled={scene.dimension==='3d'||!eligible.length}>首次离开指定场区</option>
+        <option value="union" disabled={scene.dimension==='3d'||!eligible.length}>首次离开所有有限场区</option>
       </select>
     </label>
     {playback.exit==='field'&&<label className="field-control">指定场区
@@ -65,7 +65,7 @@ export function Properties({ store, dispatch, fields }: { store: Store; dispatch
     <div className="prop-field" key={path}>
       <NumericField
         label={label}
-        value={fieldValue(scene, path) as Num}
+        value={fieldValue(scene, path) === undefined ? (/\.(z|bx|by)$/.test(path) ? 0 : null) : fieldValue(scene, path) as Num}
         unitKind={unitKind}
         min={min}
         max={max}
@@ -145,8 +145,9 @@ export function Properties({ store, dispatch, fields }: { store: Store; dispatch
         {Object.entries(FIELD_LABELS).map(([k,label])=><option key={k} value={k}>{label.replace('匀强','')}</option>)}
       </select></label>
       <label className="field-control">作用范围<select value={shape.kind} onChange={e=>replaceShape(defaultShape(e.target.value as FieldShape['kind'],shapeCenter(shape,field.position)))}>
-        <option value="global">全局</option><option value="rect">矩形</option><option value="circle">圆形</option><option value="polygon">多边形</option>
+        <option value="global">全局</option><option value="rect" disabled={scene.dimension==='3d'}>矩形</option><option value="circle" disabled={scene.dimension==='3d'}>圆形</option><option value="polygon" disabled={scene.dimension==='3d'}>多边形</option>
       </select></label>
+      {scene.dimension==='3d'&&<div>三维运动当前使用全局场；有限场区请切换二维模式。</div>}
       {shape.kind==='rect'&&<>{num('宽度',path+'.shape.width','length')}{num('高度',path+'.shape.height','length')}</>}
       {shape.kind==='circle'&&num('半径',path+'.shape.radius','length')}
       {(shape.kind==='rect'||shape.kind==='circle')&&<>{num('场区中心 x',path+'.shape.center.x','length')}{num('场区中心 y',path+'.shape.center.y','length')}</>}
@@ -165,8 +166,8 @@ export function Properties({ store, dispatch, fields }: { store: Store; dispatch
             changeField({gradient:null,plates:{axis,voltage:typeof distance==='number'?vector[axis]*distance:null}},['gradient']);
           } else changeField({gradient:null,plates:null,...(field.plates&&electric?{vector:electric}:{})},['gradient','plates']);
         }}>
-          <option value="uniform">匀强</option><option value="gradient">线性渐变</option>
-          {canUsePlates&&<option value="plates">按平行板电压计算</option>}
+          <option value="uniform">匀强</option><option value="gradient" disabled={scene.dimension==='3d'&&field.kind==='uniform_magnetic'}>线性渐变</option>
+          {canUsePlates&&<option value="plates" disabled={scene.dimension==='3d'}>按平行板电压计算</option>}
         </select>
       </label>}
       {field.kind==='uniform_gravity'&&<>{num(gradient?'参考点 gx':'重力场 gx',path+'.vector.x','accel')}{num(gradient?'参考点 gy':'重力场 gy',path+'.vector.y','accel')}</>}
@@ -181,16 +182,20 @@ export function Properties({ store, dispatch, fields }: { store: Store; dispatch
           <div>E = {fmtWith(electric?.[field.plates.axis]??null,'V/m')}（沿 {field.plates.axis} 轴）</div>
         </>:<>{num(gradient?'参考点 Ex':'电场 Ex',path+'.vector.x','electric')}{num(gradient?'参考点 Ey':'电场 Ey',path+'.vector.y','electric')}</>}
       </>}
-      {field.kind==='uniform_magnetic'&&num(gradient?'参考点 Bz（正值指向纸外）':'磁场 Bz（正值指向纸外）',path+'.bz','magnetic')}
+      {scene.dimension==='3d'&&(field.kind==='uniform_gravity'||field.kind==='uniform_electric')&&num(field.kind==='uniform_gravity'?'重力场 gz':'电场 Ez',path+'.vector.z',field.kind==='uniform_gravity'?'accel':'electric')}
+      {scene.dimension==='3d'&&field.kind==='uniform_magnetic'&&<>{num('磁场 Bx',path+'.bx','magnetic')}{num('磁场 By',path+'.by','magnetic')}</>}
+      {field.kind==='uniform_magnetic'&&num(scene.dimension==='3d'?'磁场 Bz':gradient?'参考点 Bz（正值指向纸外）':'磁场 Bz（正值指向纸外）',path+'.bz','magnetic')}
       {gradient&&<>
         {num('参考点 x',path+'.position.x','length')}{num('参考点 y',path+'.position.y','length')}
         {num(field.kind==='uniform_magnetic'?'Bz 沿 x 每米的变化':'x 分量沿 x 每米的变化',path+'.gradient.x',gradientUnit)}
         {num(field.kind==='uniform_magnetic'?'Bz 沿 y 每米的变化':'y 分量沿 y 每米的变化',path+'.gradient.y',gradientUnit)}
+        {scene.dimension==='3d'&&<>{num('参考点 z',path+'.position.z','length')}{field.kind!=='uniform_magnetic'&&num('z 分量沿 z 每米的变化',path+'.gradient.z',gradientUnit)}</>}
       </>}
       {isPointSource(field)&&<>
         <div>{field.kind==='point_mass'?'固定质量源会吸引小球，距离变为两倍时引力减为四分之一。可用于模拟天体附近的轨道。':'固定电荷产生径向电场，距离变为两倍时场强减为四分之一。同号排斥，异号吸引。'}</div>
         {shape.kind!=='global'&&<p className="hint">裁剪点源：仅在所画区域内施力的教学模型。</p>}
         {num('场源 x',path+'.position.x','length')}{num('场源 y',path+'.position.y','length')}
+        {scene.dimension==='3d'&&num('场源 z',path+'.position.z','length')}
         {num(field.kind==='point_mass'?'源质量':'源电荷',path+'.sourceStrength',field.kind==='point_mass'?'mass':'charge')}
         {num('最小距离',path+'.cutoffRadius','length')}
       </>}
@@ -254,8 +259,10 @@ export function Properties({ store, dispatch, fields }: { store: Store; dispatch
             {charged&&num('电荷量 q（正值或负值）',chargePath,'charge')}
             {num('初始位置 x',`bodies.${body.id}.pos.x`,'length')}
             {num('初始位置 y',`bodies.${body.id}.pos.y`,'length')}
+            {scene.dimension==='3d'&&num('初始位置 z',`bodies.${body.id}.pos.z`,'length')}
             {num('初速度 vx',`bodies.${body.id}.vel.x`,'speed')}
             {num('初速度 vy',`bodies.${body.id}.vel.y`,'speed')}
+            {scene.dimension==='3d'&&num('初速度 vz',`bodies.${body.id}.vel.z`,'speed')}
             {twoBalls ? collisionControls() : sceneControls()}
           </>}
           {body.kind === 'block' && attachedSup && (
