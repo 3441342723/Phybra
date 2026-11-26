@@ -10,9 +10,10 @@ import { projectileTemplate } from './projectile';
 import type { Template } from './template';
 import { reportUnsupportedEnergyQueries } from './energy';
 import { fieldTemplate } from './fields';
+import { collisionTemplate } from './collision';
 
 /** 不同对象组合的求解模板。 */
-export const TEMPLATES: Template[] = [fieldTemplate, compositionTemplate, circularTemplate, multiTrackTemplate, inclineTemplate, kinematicsTemplate, projectileTemplate];
+export const TEMPLATES: Template[] = [collisionTemplate, fieldTemplate, compositionTemplate, circularTemplate, multiTrackTemplate, inclineTemplate, kinematicsTemplate, projectileTemplate];
 
 export function classify(scene: Scene): Template | null {
   return TEMPLATES.find((t) => t.match(scene)) ?? null;

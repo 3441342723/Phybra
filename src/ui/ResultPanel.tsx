@@ -51,7 +51,7 @@ export function ResultPanel({ store, dispatch, solution }: { store: Store; dispa
   const formal = store.formal;
   const showFormal = formal.status === 'ready' && formal.solution;
   const display = showFormal ? formal.solution : solution;
-  const crossings = display?.events.filter(event => event.kind === 'field_crossing') ?? [];
+  const crossings = display?.events.filter(event => event.kind === 'field_crossing'||event.kind==='collision') ?? [];
   const report = formal.status === 'stale' && formal.report ? formal.report : store.preview.report;
 
   return (
@@ -70,7 +70,7 @@ export function ResultPanel({ store, dispatch, solution }: { store: Store; dispa
             <>
               {display.notice && <div className="hint" role="status">{display.notice}</div>}
               {!!crossings.length && <details className="field-crossings">
-                <summary>场区穿越 · {crossings.length} 次</summary>
+                <summary>{display.template==='collision'?'碰撞事件':'场区穿越'} · {crossings.length} 次</summary>
                 {crossings.map((event, index) => <button key={index} onClick={() => {
                   dispatch({ type: 'pause' });
                   dispatch({ type: 'scrub', t: event.t });

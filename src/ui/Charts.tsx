@@ -61,12 +61,18 @@ export function Charts({ solution, t }: { solution: Solution | null; t: number }
         : [{ name: '速度 v (m/s)', data: samples.map((s) => [s.t, s.vx]) }];
     const curves: { name: string; data: (number | null)[][]; color?: string }[] = isEnergy && energy?.status === 'ready'
       ? ENERGY_METRICS.filter(({ key }) => energy.samples.some((s) => s[key] !== null)).map(({ key, name, color }) => ({
-          name: key === 'potential' && solution.template === 'field' ? '势能' : name, color, data: energy.samples.map((s) => [s.t, s[key]]),
+          name: key==='dissipated'&&solution.template==='collision'?'碰撞耗散':key==='kinetic'&&solution.template==='collision'?'系统总动能':key === 'potential' && solution.template === 'field' ? '势能' : name, color, data: energy.samples.map((s) => [s.t, s[key]]),
         }))
       : chartMode === 'accel' ? [
           {name:'ax (m/s²)',data:samples.map(s=>[s.t,s.ax??null])},
           {name:'ay (m/s²)',data:samples.map(s=>[s.t,s.ay??null])},
-        ] : chartMode === 'pos' ? posSeries : velSeries;
+        ] : solution.bodyTracks ? solution.bodyTracks.flatMap(track=>chartMode==='pos'?[
+          {name:track.name+' · x (m)',data:track.samples.map(s=>[s.t,s.x])},
+          {name:track.name+' · y (m)',data:track.samples.map(s=>[s.t,s.y])},
+        ]:[
+          {name:track.name+' · vx (m/s)',data:track.samples.map(s=>[s.t,s.vx])},
+          {name:track.name+' · vy (m/s)',data:track.samples.map(s=>[s.t,s.vy])},
+        ]) : chartMode === 'pos' ? posSeries : velSeries;
     const tickLabels = { hideOverlap: true, formatter: (value: number) => fmt(value, 4) };
     chart.current.setOption(
       {

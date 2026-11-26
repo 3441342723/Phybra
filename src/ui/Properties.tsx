@@ -2,7 +2,7 @@ import type { FieldKind, FieldPlayback, FieldShape, Num, UnitKind } from '../mod
 import { supportDir, supportLength } from '../model/geometry';
 import { getAt, resolveBindings, setAt } from '../model/paths';
 import { fmtWith } from '../model/units';
-import { makeContact } from '../model/factory';
+import { DEFAULT_COLLISION, makeContact } from '../model/factory';
 import { SUPPORTED_TYPES } from '../model/validate';
 import { fieldValue, withBinding } from '../state/editing';
 import type { FieldEdit } from '../state/editing';
@@ -23,6 +23,7 @@ function BindingSelect({ store, path, dispatch }: { store: Store; path: string; 
 
 export function Properties({ store, dispatch, fields }: { store: Store; dispatch: (a: Action) => void; fields: FieldEdit }) {
   const scene = store.present;
+  const twoBalls=scene.bodies.length===2&&scene.bodies.every(b=>b.kind==='ball');
   const id = store.selection;
   const body = scene.bodies.find((b) => b.id === id);
   const sup = scene.supports.find((s) => s.id === id);
@@ -74,13 +75,29 @@ export function Properties({ store, dispatch, fields }: { store: Store; dispatch
     </div>
   );
 
+  const collisionControls=()=>{
+    const settings=scene.collision??DEFAULT_COLLISION;
+    const editSetting=(key:'restitution'|'afterCollision',value:Num)=>{
+      if(scene.collision) fields.commit('collision.'+key,value);
+      else fields.commit('collision',{...settings,[key]:value});
+    };
+    return <section><h3>双球碰撞</h3>
+      <NumericField label="恢复系数 e（0～1）" value={scene.collision?fieldValue(scene,'collision.restitution'):settings.restitution} unitKind="none"
+        onCommit={value=>editSetting('restitution',value)} onTransient={()=>{}} />
+      {scene.collision&&<BindingSelect store={store} path="collision.restitution" dispatch={dispatch} />}
+      <NumericField label="碰后播放时长" value={scene.collision?fieldValue(scene,'collision.afterCollision'):settings.afterCollision} unitKind="time"
+        onCommit={value=>editSetting('afterCollision',value)} onTransient={()=>{}} />
+      <div>e=1 弹性；0&lt;e&lt;1 非弹性；e=0 正碰后共速。两球在无外场下自由运动，忽略自转和切向摩擦。</div>
+    </section>;
+  };
+
   if (!id) {
     return (
       <div className="panel-content">
         <section>
           <h3>场景</h3>
           <input className="title-input" value={scene.title} onChange={(e) => dispatch({ type: 'apply', scene: { ...scene, title: e.target.value, rev: scene.rev + 1 } })} />
-          {scene.bodies.some(b=>b.kind==='ball') || scene.fields?.length ? sceneControls()
+          {twoBalls ? collisionControls() : scene.bodies.some(b=>b.kind==='ball') || scene.fields?.length ? sceneControls()
             : num('重力加速度 g', 'gravity', 'accel', 1, 25, 0.1, '默认 9.8 属于明示假设，可在结果区核对')}
         </section>
         <section>
@@ -218,6 +235,8 @@ export function Properties({ store, dispatch, fields }: { store: Store; dispatch
           <h3>{body.kind==='ball'?'小球':`${body.name}（${body.kind === 'block' ? '物块' : body.kind === 'boat' ? '小船' : body.kind === 'circular' ? '旧圆周运动示例' : '旧抛体场景'}）`}</h3>
           {num('质量 m', `bodies.${body.id}.mass`, 'mass', body.kind==='ball'?undefined:0.1, body.kind==='ball'?undefined:50, 0.1, body.kind === 'ball'?'质量必须为正；电磁加速度取决于荷质比 q/m。':body.kind === 'circular' ? '计算向心力需要正质量；留空则向心力待求' : '计算能量和做功需要正质量')}
           {body.kind==='ball'&&<>
+            <label className="field-control">名称<input aria-label="小球名称" value={body.name} onChange={e=>fields.commit(`bodies.${body.id}.name`,e.target.value)} /></label>
+            {num('碰撞半径 R',`bodies.${body.id}.collisionRadius`,'length')}
             <label className="field-control">
               <input type="checkbox" checked={charged} onChange={e=>{
                 const charged=e.currentTarget.checked;
@@ -230,7 +249,7 @@ export function Properties({ store, dispatch, fields }: { store: Store; dispatch
             {num('初始位置 y',`bodies.${body.id}.pos.y`,'length')}
             {num('初速度 vx',`bodies.${body.id}.vel.x`,'speed')}
             {num('初速度 vy',`bodies.${body.id}.vel.y`,'speed')}
-            {sceneControls()}
+            {twoBalls ? collisionControls() : sceneControls()}
           </>}
           {body.kind === 'block' && attachedSup && (
             <>

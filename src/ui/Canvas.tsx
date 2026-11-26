@@ -42,6 +42,8 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
   const links = scene.links ?? [];
   const resolved = useMemo(() => resolveBindings(scene), [scene]);
   const visibleFields = resolved.fields ?? [];
+  const twoBalls=scene.bodies.length===2&&scene.bodies.every(b=>b.kind==='ball');
+  const bodyRadius=(body:Body)=>twoBalls?Math.max(1,(resolved.bodies.find(b=>b.id===body.id)?.collisionRadius??0.25)*cam.scale):12;
 
   useEffect(() => { if (store.tool !== 'field_polygon') setPolygon([]); }, [store.tool]);
   const track = useMemo(() => {
@@ -106,7 +108,7 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
     }
     for (const body of scene.bodies) {
       const bp = bodyScreen(body);
-      if (bp && dist(p, bp) < 20) return { kind: 'body', id: body.id };
+      if (bp && dist(p, bp) < Math.max(20,bodyRadius(body))) return { kind: 'body', id: body.id };
     }
     for (const sup of scene.supports) {
       const a = w2s(sup.a);
@@ -125,6 +127,7 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
     let created = '';
     if (store.tool === 'ball') {
       const b = makeBall(world);
+      b.name = '小球 ' + (scene.bodies.filter(item=>item.kind==='ball').length+1);
       next = { ...next, bodies: [...next.bodies, b] };
       if (next.asks.length === 0) next = { ...next, asks: [makeAsk('at_time', { t: 1 })] };
       created = b.id;
@@ -344,11 +347,15 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
     grid.push(<line key={`gy${i}`} x1={0} y1={a.y} x2={size.w} y2={a.y} className={i === 0 ? 'axis' : 'grid'} />);
   }
 
-  const trajectory = solution ? solution.samples.map((st) => w2s({ x: st.x, y: st.y })) : [];
+  const trajectories = solution ? (solution.bodyTracks??[{bodyId:scene.bodies[0]?.id,samples:solution.samples}])
+    .map(item=>({id:item.bodyId,points:item.samples.map(w2s)})) : [];
   const moving = solution && (store.playback.t > 0 || store.playback.mode === 'playing') ? solution.evalAt(store.playback.t) : null;
-  const movingPoint = moving ? w2s(moving) : null;
-  const movingKind = scene.bodies[0]?.kind;
-  const movingText = moving ? `t=${fmt(moving.t, 4)} s` : '';
+  const motions=moving&&solution?(solution.bodyTracks??[{bodyId:scene.bodies[0].id,evalAt:solution.evalAt}]).flatMap((item,index)=>{
+    const body=scene.bodies.find(b=>b.id===item.bodyId);
+    if(!body)return [];
+    const sample=item.evalAt(store.playback.t);
+    return [{body,sample,point:w2s(sample),index}];
+  }):[];
   const activeFields=((moving ?? solution?.evalAt(0))?.fieldIds??[])
     .map(id=>sceneFields.find(f=>f.id===id)?.name).filter(Boolean);
   const measurement = store.measure.a && store.measure.b ? {
@@ -402,7 +409,7 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
   }
   for (const { body, p, selected, tip } of bodies) {
     labels.push({ id: body.id, at: p, text: body.name+(moving?'（初始）':''), tone: 'object', priority: selected ? 4 : 1 });
-    obstacles.push(labelObstacle(p, body.kind === 'block' ? 24 : 13));
+    obstacles.push(labelObstacle(p, body.kind === 'block' ? 24 : bodyRadius(body)+1));
     if (tip) {
       obstacles.push(labelObstacle(tip, 8));
       labels.push({ id: `velocity-${body.id}`, at: tip, text: 'v', tone: 'velocity', priority: 3 });
@@ -412,9 +419,9 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
     obstacles.push(labelObstacle(p, 7));
     labels.push({ id: `event-${key}`, at: p, text: texts.length > 1 ? `${texts[0]} · +${texts.length - 1}` : texts[0], tone: 'event', priority: 2 });
   }
-  if (movingPoint) {
-    obstacles.push(labelObstacle(movingPoint, movingKind === 'block' ? 24 : 13));
-    labels.push({ id: 'moving', at: movingPoint, text: movingText, tone: 'moving', priority: 5 });
+  for(const {body,sample,point} of motions) {
+    obstacles.push(labelObstacle(point, body.kind === 'block' ? 24 : bodyRadius(body)+1));
+    labels.push({ id: 'moving-'+body.id, at: point, text: body.name+' · t='+fmt(sample.t,4)+' s', tone: 'moving', priority: 5 });
   }
   if (measurement) {
     labels.push({ id: 'measurement', at: mid(measurement.a, measurement.b), text: measurement.text, tone: 'measure', priority: 5 });
@@ -448,9 +455,9 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
             const p=bodyScreen(b);
             return p?s2w(p):null;
           }} />
-        {trajectory.length > 1 && (
-          <polyline points={trajectory.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')} className="trajectory" />
-        )}
+        {trajectories.filter(item=>item.points.length>1).map((item,index)=>(
+          <polyline key={item.id} data-trajectory-body={item.id} points={item.points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')} className="trajectory" style={index?{stroke:'#0891b2'}:undefined} />
+        ))}
         {supports.map(({ sup, a, b, selected, text }) => {
           return (
             <g key={sup.id} className={selected ? 'selected' : ''}>
@@ -524,7 +531,7 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
                 <rect x={-16} y={-16} width={32} height={32} transform={`translate(${p.x} ${p.y}) rotate(${angle})`} className={moving ? 'initial-body' : 'body-block'} />
               )}
               {(body.kind === 'projectile' || body.kind === 'ball') && (
-                <circle cx={p.x} cy={p.y} r={12} className={moving ? 'initial-body' : 'body-projectile'} />
+                <circle cx={p.x} cy={p.y} r={bodyRadius(body)} className={moving ? 'initial-body' : 'body-projectile'} />
               )}
               {body.kind === 'boat' && (
                 <path transform={`translate(${p.x} ${p.y})`} d="M -12 6 L 12 6 L 7 -6 L -7 -6 Z" className={moving ? 'initial-body' : 'body-boat'} />
@@ -532,20 +539,20 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
             </g>
           );
         })}
-        {moving && movingPoint && (
-          <g className="moving-body" pointerEvents="none">
-            <title>{movingText}</title>
-            {movingKind === 'block' ? (
+        {motions.map(({body,sample,point,index}) => (
+          <g key={body.id} className="moving-body" data-moving-body={body.id} pointerEvents="none">
+            <title>{body.name+' · t='+fmt(sample.t,4)+' s'}</title>
+            {body.kind === 'block' ? (
               <rect x={-16} y={-16} width={32} height={32}
-                transform={`translate(${movingPoint.x} ${movingPoint.y}) rotate(${track ? -(trackSegmentAt(track, moving.s, moving.u).support.angleDeg ?? 0) : 0})`}
+                transform={`translate(${point.x} ${point.y}) rotate(${track ? -(trackSegmentAt(track, sample.s, sample.u).support.angleDeg ?? 0) : 0})`}
                 className="body-block" />
-            ) : movingKind === 'boat' ? (
-              <path transform={`translate(${movingPoint.x} ${movingPoint.y})`} d="M -12 6 L 12 6 L 7 -6 L -7 -6 Z" className="body-boat" />
+            ) : body.kind === 'boat' ? (
+              <path transform={`translate(${point.x} ${point.y})`} d="M -12 6 L 12 6 L 7 -6 L -7 -6 Z" className="body-boat" />
             ) : (
-              <circle cx={movingPoint.x} cy={movingPoint.y} r={movingKind === 'circular' ? 10 : 12} className={movingKind === 'circular' ? 'body-circular' : 'body-projectile'} />
+              <circle cx={point.x} cy={point.y} r={body.kind === 'circular' ? 10 : bodyRadius(body)} className={body.kind === 'circular' ? 'body-circular' : 'body-projectile'} style={index?{fill:'#67e8f9',stroke:'#0e7490'}:undefined} />
             )}
           </g>
-        )}
+        ))}
         {eventGroups.map(({ key, p, texts }) => (
           <rect key={key} x={p.x - 4} y={p.y - 4} width={8} height={8} transform={`rotate(45 ${p.x} ${p.y})`} className="event-marker">
             <title>{texts.join('\n')}</title>

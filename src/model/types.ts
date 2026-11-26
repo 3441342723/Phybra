@@ -19,6 +19,8 @@ export type Body = {
   charge?: Num;
   /** Missing in older scenes: infer from the charge value. Off preserves the input for later editing. */
   charged?: boolean;
+  /** Physical radius used by the two-ball collision model, in metres. */
+  collisionRadius?: Num;
   /** 仅"匀变速直线"模板使用：外加已知加速度（沿 x）。null 表示由受力决定 */
   accel: Num;
   /** 小船渡河：水流速度（米/秒） */
@@ -94,9 +96,10 @@ export type AskKind =
   | 'energy_at'
   | 'work_between'
   | 'field_exit'
-  | 'field_entry';
+  | 'field_entry'
+  | 'collision';
 
-export type EnergyEvent = 'initial' | 'apex' | 'landing' | 'end_of_support' | 'final_rest' | 'field_exit';
+export type EnergyEvent = 'initial' | 'apex' | 'landing' | 'end_of_support' | 'final_rest' | 'field_exit' | 'collision';
 export type EnergyPoint = { kind: 'time'; t: Num } | { kind: 'event'; event: EnergyEvent };
 
 export type Ask = {
@@ -135,6 +138,7 @@ export type Scene = {
   fields?: Field[];
   links?: Link[];
   fieldPlayback?: FieldPlayback;
+  collision?: { restitution: Num; afterCollision: Num };
   asks: Ask[];
   params: Param[];
   /** 对象属性路径 → 参数名，如 "supports.s1.angleDeg": "theta" */
@@ -206,7 +210,7 @@ export type EnergyAnalysis =
     };
 
 export type Solution = {
-  template: 'kinematics-1d' | 'projectile' | 'incline-friction' | 'composition' | 'circular' | 'field';
+  template: 'kinematics-1d' | 'projectile' | 'incline-friction' | 'composition' | 'circular' | 'field' | 'collision';
   sceneRev: number;
   tEnd: number;
   stages: Stage[];
@@ -217,6 +221,7 @@ export type Solution = {
   flags: Flag[];
   /** 解析求值：动画与曲线共用，禁止各自重算 */
   evalAt: (t: number) => Sample;
+  bodyTracks?: Array<{ bodyId: string; name: string; samples: Sample[]; evalAt: (t: number) => Sample }>;
   events: Array<{ kind: string; t: number; label: string; fieldIds?: string[] }>;
   energy?: EnergyAnalysis;
   notice?: string;

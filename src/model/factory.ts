@@ -31,7 +31,7 @@ export function makeProjectile(x = 0, y = 2, vx = 6, vy = 8): Body {
 }
 
 export function makeBall(position: Vec2, charge = 0, vx = 0, vy = 0): Body {
-  return { ...makeProjectile(position.x, position.y, vx, vy), kind: 'ball', name: '小球', mass: 1, charge };
+  return { ...makeProjectile(position.x, position.y, vx, vy), kind: 'ball', name: '小球', mass: 1, charge, collisionRadius: 0.25 };
 }
 
 export function makeField(kind: FieldKind, position: Vec2, shape: FieldShape = defaultShape(
@@ -232,13 +232,55 @@ export function circularExample(): Scene {
 
 export const EXAMPLES = [
   { id: 'incline', title: '斜面与摩擦', build: inclineExample },
-  { id: 'projectile', title: '斜抛', build: projectileExample },
-  { id: 'flat', title: '平抛', build: flatThrowExample },
-  { id: 'projectile-incline', title: '平抛落斜面', build: projectileInclineExample },
+  { id: 'projectile', title: '斜抛', build: () => editableProjectile(projectileExample()) },
+  { id: 'flat', title: '平抛', build: () => editableProjectile(flatThrowExample()) },
+  { id: 'projectile-incline', title: '平抛落斜面', build: () => editableProjectile(projectileInclineExample()) },
   { id: 'kinematics', title: '匀变速直线', build: kinematicsExample },
-  { id: 'circular', title: '匀速圆周运动', build: circularExample },
+  { id: 'circular', title: '匀速圆周运动', build: editableCircularExample },
   { id: 'ball-throw', title: '小球与重力场（斜抛）', build: ballThrowExample },
   { id: 'gravity-orbit', title: '点质量引力场：圆轨道', build: pointGravityExample },
+];
+
+function editableProjectile(scene: Scene): Scene {
+  scene.bodies = scene.bodies.map(b => ({...makeBall({x:b.pos.x!,y:b.pos.y!},0,b.vel.x!,b.vel.y!),mass:1}));
+  const gravity=makeField('uniform_gravity',{x:2,y:3},{kind:'global'});
+  gravity.vector.y=-scene.gravity!;
+  scene.fields=[gravity];
+  return scene;
+}
+
+function editableCircularExample(): Scene {
+  const scene=baseScene('小球与定点杆：匀速圆周运动');
+  const ball=makeBall({x:5,y:0},0,0,5);
+  ball.mass=2;
+  scene.bodies=[ball];
+  scene.links=[makeLink('rod',{x:0,y:0},ball.id,5)];
+  scene.fieldPlayback={...DEFAULT_FIELD_PLAYBACK,duration:2*Math.PI};
+  scene.asks=[makeAsk('at_time',{t:1})];
+  return scene;
+}
+
+export const DEFAULT_COLLISION = {restitution:1,afterCollision:3} as const;
+
+export function collisionExample(kind:'elastic'|'inelastic'|'chase'|'oblique'): Scene {
+  const titles={elastic:'等质量弹性对碰',inelastic:'完全非弹性正碰',chase:'不等质量追碰',oblique:'二维弹性斜碰'};
+  const scene=baseScene(titles[kind]);
+  const a=makeBall({x:0,y:3},0,kind==='chase'?4:3,0);
+  const b=makeBall({x:6,y:kind==='oblique'?3.6:3},0,kind==='elastic'?-1:kind==='chase'?1:0,0);
+  a.collisionRadius=b.collisionRadius=0.5;
+  a.name='小球 A'; b.name='小球 B';
+  if(kind==='inelastic'||kind==='chase') b.mass=2;
+  scene.bodies=[a,b];
+  scene.collision={...DEFAULT_COLLISION,restitution:kind==='inelastic'?0:kind==='chase'?0.5:1};
+  scene.asks=[makeAsk('collision'),makeAsk('at_time',{t:3})];
+  return scene;
+}
+
+export const COLLISION_EXAMPLES = [
+  {id:'collision-elastic',title:'等质量弹性对碰',build:()=>collisionExample('elastic')},
+  {id:'collision-inelastic',title:'完全非弹性正碰',build:()=>collisionExample('inelastic')},
+  {id:'collision-chase',title:'不等质量追碰',build:()=>collisionExample('chase')},
+  {id:'collision-oblique',title:'二维弹性斜碰',build:()=>collisionExample('oblique')},
 ];
 
 export const ELECTROMAGNETIC_EXAMPLES = [

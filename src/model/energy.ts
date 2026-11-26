@@ -7,6 +7,7 @@ export const ENERGY_EVENTS: ReadonlyArray<{ id: EnergyEvent; label: string }> = 
   { id: 'end_of_support', label: '轨道外端点' },
   { id: 'final_rest', label: '最终静止' },
   { id: 'field_exit', label: '首次出场' },
+  { id: 'collision', label: '碰撞后瞬间' },
 ];
 
 export function isEnergyPoint(value: unknown): value is EnergyPoint {

@@ -9,7 +9,7 @@ import { Latex } from './Latex';
 import { NumericField } from './NumericField';
 import { FIELD_LABELS, fieldLabel } from '../model/fields';
 
-const ASK_KINDS: AskKind[] = ['at_time', 'at_position', 'at_velocity', 'at_height', 'landing', 'apex', 'rest', 'end_of_support', 'friction_state', 'energy_at', 'work_between', 'field_entry', 'field_exit'];
+const ASK_KINDS: AskKind[] = ['at_time', 'at_position', 'at_velocity', 'at_height', 'landing', 'apex', 'rest', 'end_of_support', 'friction_state', 'energy_at', 'work_between', 'field_entry', 'field_exit', 'collision'];
 const ASK_TARGET: Partial<Record<AskKind, { key: 't' | 'x' | 'y' | 'v'; label: string; unit: 'time' | 'length' | 'speed' }>> = {
   at_time: { key: 't', label: '时刻', unit: 'time' },
   at_position: { key: 'x', label: '位置（斜面/连续轨道为沿轨 s）', unit: 'length' },

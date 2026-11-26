@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { ELECTROMAGNETIC_EXAMPLES, EXAMPLES, inclineExample } from './model/factory';
+import { baseScene, COLLISION_EXAMPLES, ELECTROMAGNETIC_EXAMPLES, EXAMPLES, inclineExample } from './model/factory';
 import { getAt } from './model/paths';
 import { solve } from './solver';
 import { activeSolution, initStore, reducer, type Store } from './state/store';
@@ -175,7 +175,7 @@ export default function App() {
     if (!sol) return;
     const rect = workspaceRef.current?.getBoundingClientRect();
     if (rect) {
-      const camera = fitPlaybackCamera(st.camera, sol.samples, layout, rect.width, rect.height);
+      const camera = fitPlaybackCamera(st.camera, sol.bodyTracks?.flatMap(track=>track.samples)??sol.samples, layout, rect.width, rect.height);
       if (camera !== st.camera) dispatch({ type: 'camera', camera });
     }
     if (st.playback.t >= sol.tEnd) dispatch({ type: 'scrub', t: 0 });
@@ -239,11 +239,17 @@ export default function App() {
       <header className="app-header">
         <strong>高中物理工作台</strong>
         <span className="badge">本地雏形 · 确定性求解在浏览器内完成</span>
+        <button onClick={()=>{
+          dispatch({type:'apply',scene:{...baseScene(),rev:store.present.rev+1}});
+          dispatch({type:'select',id:null});
+          dispatch({type:'tool',tool:'select'});
+          dispatch({type:'setDraft',draft:null});
+        }}>新建场景</button>
         <select
           aria-label="载入示例"
           defaultValue=""
           onChange={(e) => {
-            const ex = [...EXAMPLES, ...ELECTROMAGNETIC_EXAMPLES].find((x) => x.id === e.target.value);
+            const ex = [...EXAMPLES, ...ELECTROMAGNETIC_EXAMPLES, ...COLLISION_EXAMPLES].find((x) => x.id === e.target.value);
             if (ex) dispatch({ type: 'load', scene: ex.build() });
             e.target.value = '';
           }}
@@ -251,6 +257,7 @@ export default function App() {
           <option value="">载入示例…</option>
           <optgroup label="力学">{EXAMPLES.map((ex) => <option key={ex.id} value={ex.id}>{ex.title}</option>)}</optgroup>
           <optgroup label="电磁学">{ELECTROMAGNETIC_EXAMPLES.map((ex) => <option key={ex.id} value={ex.id}>{ex.title}</option>)}</optgroup>
+          <optgroup label="碰撞">{COLLISION_EXAMPLES.map((ex) => <option key={ex.id} value={ex.id}>{ex.title}</option>)}</optgroup>
         </select>
         <button disabled={!store.past.length} onClick={() => dispatch({ type: 'undo' })}>撤销</button>
         <button disabled={!store.future.length} onClick={() => dispatch({ type: 'redo' })}>重做</button>

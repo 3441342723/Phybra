@@ -7,6 +7,7 @@ const ASK_LABEL: Record<string, string> = {
   energy_at: '某时刻的能量', work_between: '两时刻之间的做功与耗散',
   field_exit: '首次离开场区',
   field_entry: '首次进入场区',
+  collision: '碰撞时刻与碰前碰后状态',
 };
 
 export function askLabel(ask: Pick<Ask, 'kind'>): string {
@@ -20,7 +21,7 @@ export function validateScene(scene: Scene): CheckReport {
   const push = (code: any, path: string, message: string) => blockers.push({ code, path, message });
 
   if (scene.bodies.length === 0) push('missing_required', 'bodies', '场景为空：请添加一个物体，或使用 AI 建模');
-  if (scene.bodies.length > 1) push('unsupported_combo', 'bodies', '首版仅支持单物体；连接体将在后续模块开放');
+  if (scene.bodies.length > 1 && !(scene.bodies.length === 2 && scene.bodies.every(b=>b.kind==='ball'))) push('unsupported_combo', 'bodies', '多物体目前支持两个小球的光滑碰撞。');
   if (scene.bodies.some(b => b.kind !== 'ball')) {
     if (scene.gravity === null) push('missing_required', 'gravity', '缺少重力加速度 g（可填 9.8 或 10）');
     else if (scene.gravity <= 0) push('constraint_conflict', 'gravity', 'g 必须为正数');
@@ -83,4 +84,5 @@ export const SUPPORTED_TYPES = [
   { id: 'composition', label: '运动的合成与分解（小船渡河：最短时间/最短位移）' },
   { id: 'circular', label: '匀速圆周运动（线速度/角速度/周期/向心加速度/向心力）' },
   { id: 'field', label: '小球与场（重力、电场、磁场、点源）及单根定点绳杆' },
+  { id: 'collision', label: '两个小球的弹性/非弹性正碰、追碰与二维斜碰（无外场、无转动）' },
 ];
