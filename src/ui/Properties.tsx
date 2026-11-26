@@ -1,10 +1,10 @@
 import type { FieldKind, FieldPlayback, FieldShape, Num, UnitKind } from '../model/types';
 import { supportDir, supportLength } from '../model/geometry';
-import { getAt, resolveBindings, setAt } from '../model/paths';
+import { getAt, resolveBindings } from '../model/paths';
 import { fmtWith } from '../model/units';
 import { DEFAULT_COLLISION, makeContact } from '../model/factory';
 import { SUPPORTED_TYPES } from '../model/validate';
-import { fieldValue, withBinding } from '../state/editing';
+import { fieldValue, withBinding, withField } from '../state/editing';
 import type { FieldEdit } from '../state/editing';
 import type { Action, Store } from '../state/store';
 import { NumericField } from './NumericField';
@@ -13,11 +13,15 @@ import { DEFAULT_FIELD_PLAYBACK, defaultShape, electricVector, fieldLabel, FIELD
 function BindingSelect({ store, path, dispatch }: { store: Store; path: string; dispatch: (a: Action) => void }) {
   const scene = store.present;
   const value = scene.bindings[path] ?? '';
+  const shared = value && Object.values(scene.bindings).filter((name) => name === value).length > 1;
   return (
-    <select className="binding-select" value={value} onChange={(e) => dispatch({ type: 'apply', scene: withBinding(scene, path, e.target.value) })} title="绑定到命名参数">
-      <option value="">不绑定参数</option>
-      {scene.params.map((p) => <option key={p.name} value={p.name}>绑定 {p.name}</option>)}
-    </select>
+    <>
+      <select className="binding-select" value={value} onChange={(e) => dispatch({ type: 'apply', scene: withBinding(scene, path, e.target.value) })} title="绑定到命名参数">
+        <option value="">不绑定参数</option>
+        {scene.params.map((p) => <option key={p.name} value={p.name}>绑定 {p.name}</option>)}
+      </select>
+      {shared && <div className="hint">共享参数：冲突拖动不修改，请用单字段/参数。</div>}
+    </>
   );
 }
 
@@ -215,8 +219,11 @@ export function Properties({ store, dispatch, fields }: { store: Store; dispatch
     const charged = isCharged({ ...body, charge: fieldValue(scene, chargePath) });
     const attachedSup = body.attach ? scene.supports.find((s) => s.id === body.attach!.support) : null;
     const dir = attachedSup ? supportDir(attachedSup) : { x: 1, y: 0 };
-    const u = (body.vel.x ?? 0) * dir.x + (body.vel.y ?? 0) * dir.y;
     const uPath = `bodies.${body.id}.vel`;
+    const vx = fieldValue(scene, `${uPath}.x`) as Num;
+    const vy = fieldValue(scene, `${uPath}.y`) as Num;
+    const u = vx === null || vy === null ? null : vx * dir.x + vy * dir.y;
+    const velocity = (v: Num) => ({ x: v === null ? null : v * dir.x, y: v === null ? null : v * dir.y });
     const omegaPath = `bodies.${body.id}.omega`;
     const radiusPath = `bodies.${body.id}.radius`;
     const omegaEff = fieldValue(scene, omegaPath) as Num;
@@ -260,8 +267,11 @@ export function Properties({ store, dispatch, fields }: { store: Store; dispatch
                   onChange={(e) => {
                     const supportId = e.target.value;
                     const target = scene.supports.find((s) => s.id === supportId)!;
-                    let next = setAt(scene, `bodies.${body.id}.attach.support`, supportId);
-                    next = setAt(next, `bodies.${body.id}.attach.s`, Math.min(body.attach!.s ?? 0, supportLength(target)));
+                    const s = fieldValue(scene, `bodies.${body.id}.attach.s`) as Num;
+                    let next = withField(scene, `bodies.${body.id}.attach`, {
+                      support: supportId,
+                      s: s === null ? null : Math.min(s, supportLength(target)),
+                    });
                     if (!next.contacts.some((c) => c.body === body.id && c.support === supportId)) {
                       next = { ...next, contacts: [...next.contacts, makeContact(body.id, supportId, 0.4, 0.3)] };
                     }
@@ -280,16 +290,10 @@ export function Properties({ store, dispatch, fields }: { store: Store; dispatch
                   min={-20}
                   max={20}
                   step={0.1}
-                  onTransient={(v) => {
-                    const value = (v ?? 0) as number;
-                    fields.transient(uPath, { x: value * dir.x, y: value * dir.y });
-                  }}
-                  onCommit={(v) => {
-                    const value = (v ?? 0) as number;
-                    fields.commit(uPath, { x: value * dir.x, y: value * dir.y });
-                  }}
+                  onTransient={(v) => fields.transient(uPath, velocity(v))}
+                  onCommit={(v) => fields.commit(uPath, velocity(v))}
                 />
-                <div className="hint">也可以拖动画布上的速度箭头；分量 vx={body.vel.x ?? '?'}，vy={body.vel.y ?? '?'}</div>
+                <div className="hint">也可以拖动画布上的速度箭头；分量 vx={vx ?? '?'}，vy={vy ?? '?'}</div>
               </div>
               {num('外加加速度 a（留空则由摩擦决定）', `bodies.${body.id}.accel`, 'accel', -20, 20, 0.1, '仅水平直线运动使用；斜面由受力决定')}
             </>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { snapPoint, snapValue } from '../src/model/snap';
-import { clampRect, defaultLayout, fitPlaybackCamera, WINDOW_IDS } from '../src/state/layout';
+import { clampRect, defaultLayout, fitPlaybackCamera, workspaceLayout, WINDOW_IDS } from '../src/state/layout';
 import { initStore, reducer } from '../src/state/store';
 import { EXAMPLES, inclineExample } from '../src/model/factory';
 import { solve } from '../src/solver';
@@ -22,6 +22,45 @@ describe('网格吸附', () => {
     expect(after.present).toBe(before.present);
     expect(after.formal).toBe(before.formal);
     expect(after.snap).toEqual({ enabled: false, step: 0.1 });
+  });
+});
+
+describe('窄屏抽屉布局', () => {
+  it('窄屏默认不打开面板，一次只打开一个抽屉且不改变桌面布局', () => {
+    const desktop = defaultLayout(1440, 850);
+    const original = structuredClone(desktop);
+    expect(WINDOW_IDS.filter((id) => workspaceLayout(desktop, 390, 500, null).open[id])).toEqual([]);
+    for (const active of WINDOW_IDS) {
+      const mobile = workspaceLayout(desktop, 390, 500, active);
+      expect(WINDOW_IDS.filter((id) => mobile.open[id])).toEqual([active]);
+    }
+    expect(desktop).toEqual(original);
+    expect(workspaceLayout(desktop, 1440, 850, 'ai')).toEqual(original);
+  });
+
+  it('桌面缩小只约束显示矩形，不覆盖已保存布局', () => {
+    const desktop = defaultLayout(1440, 850);
+    const original = structuredClone(desktop);
+    const compact = workspaceLayout(desktop, 800, 500, null);
+    for (const rect of Object.values(compact.rects)) {
+      expect(rect.x + rect.w).toBeLessThanOrEqual(800);
+      expect(rect.y + rect.h).toBeLessThanOrEqual(500);
+    }
+    expect(desktop).toEqual(original);
+  });
+
+  it.each(EXAMPLES)('$title 窄屏播放使用完整画布，不避让隐藏的桌面浮窗', ({ build }) => {
+    const solution = ok(solve(build()));
+    for (const [width, height] of [[320, 300], [390, 500], [760, 350]]) {
+      const layout = workspaceLayout(defaultLayout(), width, height, null);
+      const camera = fitPlaybackCamera({ scale: 46, ox: 90, oy: 380 }, solution.samples, layout, width, height);
+      for (const point of solution.samples) {
+        expect(camera.ox + point.x * camera.scale).toBeGreaterThanOrEqual(32 - 1e-7);
+        expect(camera.ox + point.x * camera.scale).toBeLessThanOrEqual(width - 32 + 1e-7);
+        expect(camera.oy - point.y * camera.scale).toBeGreaterThanOrEqual(32 - 1e-7);
+        expect(camera.oy - point.y * camera.scale).toBeLessThanOrEqual(height - 32 + 1e-7);
+      }
+    }
   });
 });
 

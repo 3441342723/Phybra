@@ -27,6 +27,21 @@ describe('编辑 / 播放 / 视图状态分离', () => {
     expect(st.formal.solution).not.toBeNull();
   });
 
+  it.each(['apply', 'transient'] as const)('拒绝的冲突编辑 %s 不改变播放、正式结果或撤销栈', (type) => {
+    let st = base();
+    const result = solve(st.present);
+    if (!result.ok) throw new Error('示例不可解');
+    st = reducer(st, { type: 'formalResult', rev: st.present.rev, result: { solution: result.solution, report: null } });
+    st = reducer(st, { type: 'play' });
+    st = reducer(st, { type: 'tick', elapsed: 0.5, tEnd: result.solution.tEnd });
+    const bodyId = st.present.bodies[0].id;
+    st.present.bindings[`bodies.${bodyId}.vel.x`] = 'theta';
+    st.present.bindings[`bodies.${bodyId}.vel.y`] = 'theta';
+    const rejected = withField(st.present, `bodies.${bodyId}.vel`, { x: 1, y: 2 });
+    expect(rejected).toBe(st.present);
+    expect(reducer(st, { type, scene: rejected })).toBe(st);
+  });
+
   it('缩放与平移不改变场景与 rev，不触发重算', () => {
     let st = base();
     const before = st.present;
@@ -79,6 +94,17 @@ describe('编辑 / 播放 / 视图状态分离', () => {
     expect(st.present.gravity).toBe(10);
     st = reducer(st, { type: 'undo' });
     expect(st.present.gravity).toBe(9.8);
+  });
+
+  it('撤销重做清理删除确认，避免已卸载的确认框无法再次打开', () => {
+    let st = base();
+    const next = flatThrowExample();
+    st = reducer(st, { type: 'apply', scene: next });
+    st = reducer(st, { type: 'confirmDelete', id: next.bodies[0].id });
+    st = reducer(st, { type: 'undo' });
+    expect(st.confirmDelete).toBeNull();
+    st = reducer(st, { type: 'redo' });
+    expect(st.confirmDelete).toBeNull();
   });
 
   it('AI 草稿替换场景可一步撤销', () => {
