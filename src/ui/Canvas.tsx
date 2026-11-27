@@ -418,7 +418,7 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
     obstacles.push(labelObstacle(p, body.kind === 'block' ? 24 : bodyRadius(body)+1));
     if (tip) {
       obstacles.push(labelObstacle(tip, 8));
-      labels.push({ id: `velocity-${body.id}`, at: tip, text: 'v', tone: 'velocity', priority: 3 });
+      labels.push({ id: `velocity-${body.id}`, at: tip, text: 'v0', tone: 'velocity', priority: 3 });
     }
   }
   for (const { key, p, texts } of eventGroups) {
@@ -428,6 +428,13 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
   for(const {body,sample,point} of motions) {
     obstacles.push(labelObstacle(point, body.kind === 'block' ? 24 : bodyRadius(body)+1));
     labels.push({ id: 'moving-'+body.id, at: point, text: body.name+' · t='+fmt(sample.t,4)+' s', tone: 'moving', priority: 5 });
+    const lvx = sample.vx ?? 0;
+    const lvy = sample.vy ?? 0;
+    if (Math.hypot(lvx, lvy) >= 0.05) {
+      const ltip = { x: point.x + lvx * VSCALE, y: point.y - lvy * VSCALE };
+      obstacles.push(labelObstacle(ltip, 6));
+      labels.push({ id: 'velocity-live-'+body.id, at: ltip, text: 'v1', tone: 'velocity', priority: 4 });
+    }
   }
   if (measurement) {
     labels.push({ id: 'measurement', at: mid(measurement.a, measurement.b), text: measurement.text, tone: 'measure', priority: 5 });
@@ -549,6 +556,21 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
         {motions.map(({body,sample,point,index}) => (
           <g key={body.id} className="moving-body" data-moving-body={body.id} pointerEvents="none">
             <title>{body.name+' · t='+fmt(sample.t,4)+' s'}</title>
+            {(() => {
+              const vx = sample.vx ?? 0;
+              const vy = sample.vy ?? 0;
+              const speed = Math.hypot(vx, vy);
+              if (speed < 0.05) return null;
+              const tip = { x: point.x + vx * VSCALE, y: point.y - vy * VSCALE };
+              return (
+                <>
+                  <line x1={point.x} y1={point.y} x2={tip.x} y2={tip.y} className="velocity-arrow live" />
+                  <circle cx={tip.x} cy={tip.y} r={4} className="velocity-live-dot">
+                    <title>{'当前速度 ' + speed.toFixed(2) + ' m/s'}</title>
+                  </circle>
+                </>
+              );
+            })()}
             {body.kind === 'block' ? (
               <rect x={-16} y={-16} width={32} height={32}
                 transform={`translate(${point.x} ${point.y}) rotate(${track ? -(trackSegmentAt(track, sample.s, sample.u).support.angleDeg ?? 0) : 0})`}
