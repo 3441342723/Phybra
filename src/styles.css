@@ -166,6 +166,8 @@ textarea { width: 100%; resize: vertical; }
 .handle { fill: var(--site-surface); stroke: #f59e0b; stroke-width: 2; cursor: move; }
 .handle.velocity { stroke: #059669; }
 .velocity-arrow { stroke: #059669; stroke-width: 2.5; marker-end: none; }
+.velocity-arrow.live { stroke: #f97316; stroke-dasharray: 4 3; }
+.velocity-live-dot { fill: #f97316; }
 .trajectory { fill: none; stroke: #7c3aed; stroke-width: 2; stroke-dasharray: 5 3; }
 .event-marker { fill: #7c3aed; }
 .event-label { font-size: calc(10 * var(--tu)); fill: #7c3aed; }
