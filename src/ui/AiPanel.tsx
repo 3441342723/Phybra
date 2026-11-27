@@ -90,13 +90,13 @@ export function AiPanel({ store, dispatch, onClose }: { store: Store; dispatch: 
             )}
             <label>题目文字</label>
             <textarea rows={5} value={text} onChange={(e) => setText(e.target.value)} placeholder="粘贴题目文字，或上传题图" />
-            <label>题图（≤ 4 MB）</label>
+            <label>题图（≤ 600 KB）</label>
             <input
               type="file"
               accept="image/*"
               onChange={(e) => {
                 const f = e.target.files?.[0] ?? null;
-                if (f && f.size > MAX_IMAGE_BYTES) setError('图片超过 4 MB，请压缩后再上传');
+                if (f && f.size > MAX_IMAGE_BYTES) setError('题图超过 600 KB 上限，请压缩或裁剪后再上传');
                 else {
                   setError('');
                   setImage(f);

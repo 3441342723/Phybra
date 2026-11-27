@@ -4,6 +4,7 @@
 import { handler } from '../functions/handler.ts';
 import { CloudAgentsError } from '../functions/cloud-agents.mjs';
 import { createVerificationCloud } from './verification-cloud.ts';
+import { MemoryQuotaStore, RateLimiter } from '../functions/rate-limit.ts';
 
 const VALID_DRAFT = {
   source: {},
@@ -348,6 +349,68 @@ const streamJob = (await (await start(streamClient, { text: '小球运动' })).j
 check('未完成的 JSON 流继续等待', (await result(streamClient, streamJob)).status === 202 && streamClient.sessions.length === 1);
 const freshJob = (await (await start(recoveryClient, { text: '带电小球在电场和磁场中的运动', generationId: 'fresh-generation' })).json()).jobId;
 check('显式重新生成不会命中失败旧会话', freshJob !== recoveryJob && recoveryClient.sessions.length === 3);
+
+// --- P4.2/P4.3 频率限制与每日额度 ---
+
+function postFrom(ip: string, body: unknown) {
+  return new Request('http://site/functions/v1/app/interpret', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+    body: JSON.stringify(body),
+  });
+}
+
+const clock = { now: 1_000_000 };
+const limiter = new RateLimiter(new MemoryQuotaStore(), { minIntervalMs: 10_000, dailyPerIp: 3, dailyGlobal: 5 }, () => clock.now);
+const limitedDeps = { ...depsFor(fakeClient(VALID_DRAFT)), limiter };
+
+const first = await handler(postFrom('203.0.113.7', { text: '斜面 A1' }), limitedDeps);
+check('限流：首次请求放行', first.status === 202);
+const tooSoon = await handler(postFrom('203.0.113.7', { text: '斜面 A2' }), limitedDeps);
+check('限流：同 IP 间隔过短返回 429 rate_limited', tooSoon.status === 429 && (await tooSoon.json()).error === 'rate_limited');
+
+clock.now += 10_000;
+const second = await handler(postFrom('203.0.113.7', { text: '斜面 A3' }), limitedDeps);
+check('限流：间隔满足后放行', second.status === 202);
+clock.now += 10_000;
+const third = await handler(postFrom('203.0.113.7', { text: '斜面 A4' }), limitedDeps);
+check('限流：第 3 次仍在每日额度内', third.status === 202);
+clock.now += 10_000;
+const fourth = await handler(postFrom('203.0.113.7', { text: '斜面 A5' }), limitedDeps);
+check('限流：超过单 IP 每日额度返回 429 quota_exceeded', fourth.status === 429 && (await fourth.json()).error === 'quota_exceeded');
+
+clock.now += 10_000;
+const otherIp1 = await handler(postFrom('198.51.100.9', { text: '斜面 B1' }), limitedDeps);
+clock.now += 10_000;
+const otherIp2 = await handler(postFrom('198.51.100.10', { text: '斜面 B2' }), limitedDeps);
+check('限流：其他 IP 在全局额度内放行', otherIp1.status === 202 && otherIp2.status === 202);
+clock.now += 10_000;
+const globalCap = await handler(postFrom('198.51.100.11', { text: '斜面 C1' }), limitedDeps);
+check('限流：超过全局每日额度返回 429 quota_exceeded', globalCap.status === 429 && (await globalCap.json()).error === 'quota_exceeded');
+
+const healthUnlimited = await handler(new Request('http://site/functions/v1/app?name=Physics'), limitedDeps);
+check('限流：健康检查不受限流影响', healthUnlimited.status === 200);
+
+// fingerprint 续取不重复扣额度
+const resumeClock = { now: 3_000_000 };
+const resumeLimiter = new RateLimiter(new MemoryQuotaStore(), { minIntervalMs: 0, dailyPerIp: 5, dailyGlobal: 10 }, () => resumeClock.now);
+const resumeDeps = { ...depsFor(fakeClient(VALID_DRAFT)), limiter: resumeLimiter };
+const resumeFirst = await handler(postFrom('203.0.113.30', { text: '同一题面' }), resumeDeps);
+const resumeAgain = await handler(postFrom('203.0.113.30', { text: '同一题面' }), resumeDeps);
+const resumeAgainJson = await resumeAgain.json();
+check('限流：fingerprint 续取不重复扣额度', resumeFirst.status === 202 && resumeAgain.status === 202 && resumeAgainJson.resumed === true,
+  `resumed=${String(resumeAgainJson.resumed)}`);
+
+// peek：续取/轮询只查额度不计数
+const peekClock = { now: 2_000_000 };
+const peekLimiter = new RateLimiter(new MemoryQuotaStore(), { minIntervalMs: 0, dailyPerIp: 1, dailyGlobal: 10 }, () => peekClock.now);
+const peekReq = postFrom('203.0.113.20', { text: '斜面' });
+await peekLimiter.peek(peekReq);
+await peekLimiter.peek(peekReq);
+await peekLimiter.check(peekReq);
+let peekExceeded = false;
+try { await peekLimiter.peek(peekReq); } catch (error) { peekExceeded = (error as { code?: string }).code === 'quota_exceeded'; }
+check('限流：peek 不消耗额度，额度耗尽后 peek 拒绝续取', peekExceeded);
 
 // --- 日志安全：只允许计数、资源 ID、错误码与诊断字段 ---
 
