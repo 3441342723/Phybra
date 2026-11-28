@@ -2,6 +2,7 @@ import { CloudAgentsError, createCloudAgentsClient } from './cloud-agents.mjs';
 import { CLOUD_API_ORIGIN, CLOUD_REQUEST_TIMEOUT_MS, InterpretError, startInterpret, interpretResult, parseInterpretInput } from './interpret.ts';
 import { createQwenProvider, type QwenProvider } from './qwen.ts';
 import { SCENE_CONTRACT_HEADER, SCENE_CONTRACT_REVISION } from './scene-contract.ts';
+import { configFromEnv, MemoryQuotaStore, RateLimiter } from './rate-limit.ts';
 
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
 
@@ -13,6 +14,7 @@ type CloudClient = {
 export type HandlerDeps = {
   client: () => CloudClient;
   qwen?: QwenProvider;
+  limiter?: RateLimiter;
 };
 
 const liveDeps: HandlerDeps = {
@@ -35,6 +37,7 @@ const liveDeps: HandlerDeps = {
       },
     },
   }),
+  limiter: new RateLimiter(new MemoryQuotaStore(), configFromEnv()),
 };
 
 function json(body: unknown, status = 200, extra: HeadersInit = {}): Response {
@@ -137,12 +140,17 @@ export async function handler(request: Request, deps: HandlerDeps = liveDeps): P
 
   try {
     const body = await readJsonBody(request);
+    // Only accepted NEW jobs consume quota; fingerprint-resumed submissions
+    // (resumed: true) skip record(). Polling GETs never reach the limiter.
+    await deps.limiter?.gate(request);
     if (deps.qwen?.enabled()) {
       parseInterpretInput(body);
       const accepted = await deps.qwen.start(body);
+      if (accepted.resumed !== true) await deps.limiter?.record(request);
       return json(accepted, 202);
     }
     const accepted = await startInterpret(deps.client(), body);
+    if (accepted.resumed !== true) await deps.limiter?.record(request);
     return json(accepted, 202);
   } catch (error) {
     return failure(error);

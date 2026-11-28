@@ -102,7 +102,7 @@ describe('读题客户端边界', () => {
   it('超过客户端上限的图片在本地拒绝，不发起请求', async () => {
     const fetchSpy = mockFetch(async () => jsonResponse(validDraft()));
     const image = new File([new Uint8Array(MAX_IMAGE_BYTES + 1)], 'big.png', { type: 'image/png' });
-    await expect(readProblem(input({ image }))).rejects.toThrow('4 MB');
+    await expect(readProblem(input({ image }))).rejects.toThrow('600 KB');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

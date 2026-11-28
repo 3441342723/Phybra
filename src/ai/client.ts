@@ -8,7 +8,7 @@ const CONFIGURED_ENDPOINT = (import.meta as any).env?.VITE_AI_ENDPOINT as string
 const USE_DEMO = (import.meta as any).env?.VITE_AI_DEMO === '1';
 /** 默认走 Sites 同源函数；VITE_AI_ENDPOINT 仅用于指向其他自建服务。 */
 export const ENDPOINT = CONFIGURED_ENDPOINT || '/functions/v1/app/interpret';
-export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+export const MAX_IMAGE_BYTES = 600 * 1024;
 /** 异步读题总预算：云端复杂题生成可达数分钟，浏览器轮询等待。 */
 export const AI_TIMEOUT_MS = 360_000;
 const FETCH_TIMEOUT_MS = 45_000;
@@ -83,7 +83,7 @@ function isTransient(error: unknown): boolean {
 
 export async function readProblem(input: ReadInput): Promise<SceneDraft> {
   if (input.image && input.image.size > MAX_IMAGE_BYTES) {
-    throw new Error('图片超过 4 MB，请压缩后再上传');
+    throw new Error('题图超过 600 KB 上限，请压缩或裁剪后再上传');
   }
   if (input.signal?.aborted) throw new DOMException('请求已取消', 'AbortError');
   if (aiMode === 'demo') return parseSceneDraft(demoDraft(input.demo, input.text));
