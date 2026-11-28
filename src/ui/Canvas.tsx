@@ -326,9 +326,35 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
 
   function zoomAt(p: Vec2, factor: number) {
     const before = s2w(p);
-    const scale = Math.min(400, Math.max(6, cam.scale * factor));
+    const scale = Math.min(400, Math.max(0.02, cam.scale * factor));
     dispatch({ type: 'camera', camera: { scale, ox: p.x - before.x * scale, oy: p.y + before.y * scale } });
   }
+
+  function fitScene() {
+    const pts: Vec2[] = [];
+    for (const b of resolved.bodies) {
+      const r = Math.max(b.collisionRadius ?? 0, b.radius ?? 0, (b.width ?? 0) / 2, 0.5);
+      pts.push({ x: (b.pos.x ?? 0) - r, y: (b.pos.y ?? 0) - r }, { x: (b.pos.x ?? 0) + r, y: (b.pos.y ?? 0) + r });
+    }
+    for (const f of resolved.fields ?? []) {
+      const c = f.position ?? { x: 0, y: 0 };
+      if (f.shape.kind === 'rect') pts.push({ x: c.x - f.shape.width / 2, y: c.y - f.shape.height / 2 }, { x: c.x + f.shape.width / 2, y: c.y + f.shape.height / 2 });
+      else if (f.shape.kind === 'circle') pts.push({ x: c.x - f.shape.radius, y: c.y - f.shape.radius }, { x: c.x + f.shape.radius, y: c.y + f.shape.radius });
+      else if (f.shape.kind === 'polygon') pts.push(...f.shape.vertices);
+    }
+    for (const s of resolved.supports ?? []) {
+      const th = (s.angleDeg ?? 0) * Math.PI / 180;
+      pts.push(s.a, { x: s.a.x + (s.length ?? 0) * Math.cos(th), y: s.a.y + (s.length ?? 0) * Math.sin(th) });
+    }
+    for (const l of resolved.links ?? []) pts.push(l.anchor);
+    if (!pts.length || size.w < 64 || size.h < 64) return;
+    const minX = Math.min(...pts.map((p) => p.x)), maxX = Math.max(...pts.map((p) => p.x));
+    const minY = Math.min(...pts.map((p) => p.y)), maxY = Math.max(...pts.map((p) => p.y));
+    const scale = Math.min(400, Math.max(0.02, Math.min((size.w - 120) / Math.max(maxX - minX, 1), (size.h - 120) / Math.max(maxY - minY, 1))));
+    dispatch({ type: 'camera', camera: { scale, ox: size.w / 2 - (minX + maxX) / 2 * scale, oy: size.h / 2 + (minY + maxY) / 2 * scale } });
+  }
+
+  useEffect(() => { if (store.fitSeq > 0) fitScene(); }, [store.fitSeq]);
 
   function onWheel(e: React.WheelEvent) {
     zoomAt(local(e), Math.exp(-e.deltaY * 0.0012));
@@ -597,6 +623,7 @@ export function Canvas({ store, dispatch, solution, edit }: { store: Store; disp
       <div className="canvas-controls">
         <button aria-label="放大画布" onClick={() => zoomAt({ x: size.w / 2, y: size.h / 2 }, 1.25)}>+</button>
         <button aria-label="缩小画布" onClick={() => zoomAt({ x: size.w / 2, y: size.h / 2 }, 0.8)}>−</button>
+        <button aria-label="适应场景" title="把全部物体与场区收进视野" onClick={fitScene}>⤢</button>
       </div>
       </div>
       <div className="canvas-status">

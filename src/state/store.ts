@@ -30,6 +30,7 @@ export type Store = {
   draft: SceneDraft | null;
   confirmDelete: string | null;
   notice: string | null;
+  fitSeq: number;
 };
 
 const emptySlot = (): SolveSlot => ({ status: 'none', solution: null, report: null, forRev: -1 });
@@ -46,6 +47,7 @@ export function initStore(scene: Scene, camera?: Camera, snap?: SnapSettings, pl
     preview: emptySlot(), formal: emptySlot(), draft: null,
     confirmDelete: null,
     notice: null,
+    fitSeq: 0,
   };
 }
 
@@ -119,9 +121,9 @@ export function reducer(state: Store, action: Action): Store {
       };
     }
     case 'apply':
-      return action.scene === state.present ? state : commit(state, action.scene);
+      return action.scene === state.present ? state : { ...commit(state, action.scene), fitSeq: state.fitSeq + 1 };
     case 'load':
-      return { ...physicsChanged(state, action.scene), past: [], future: [], gestureBase: null, selection: null };
+      return { ...physicsChanged(state, action.scene), past: [], future: [], gestureBase: null, selection: null, fitSeq: state.fitSeq + 1 };
     case 'undo': {
       if (!state.past.length) return state;
       const previous = state.past[state.past.length - 1];

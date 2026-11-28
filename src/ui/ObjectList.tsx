@@ -9,7 +9,7 @@ import { Latex } from './Latex';
 import { NumericField } from './NumericField';
 import { FIELD_LABELS, fieldLabel } from '../model/fields';
 
-const ASK_KINDS: AskKind[] = ['at_time', 'at_position', 'at_velocity', 'at_height', 'landing', 'apex', 'rest', 'end_of_support', 'friction_state', 'energy_at', 'work_between', 'field_entry', 'field_exit', 'collision'];
+const ASK_KINDS: AskKind[] = ['at_time', 'at_position', 'at_velocity', 'at_height', 'landing', 'apex', 'rest', 'end_of_support', 'friction_state', 'energy_at', 'work_between', 'field_entry', 'field_exit', 'collision','motion_analysis','return_to_initial_x','custom'];
 const ASK_TARGET: Partial<Record<AskKind, { key: 't' | 'x' | 'y' | 'v'; label: string; unit: 'time' | 'length' | 'speed' }>> = {
   at_time: { key: 't', label: '时刻', unit: 'time' },
   at_position: { key: 'x', label: '位置（斜面/连续轨道为沿轨 s）', unit: 'length' },
@@ -142,6 +142,9 @@ export function ObjectList({ store, dispatch, fields, solution }: { store: Store
                   onCommit={(v) => fields.commit(`asks.${ask.id}.${target.key}`, v)}
                 />
               )}
+              {ask.kind==='custom'&&<label className="field-control">原待求问题<input value={ask.question??''} onChange={e=>fields.commit(`asks.${ask.id}.question`,e.target.value)} /></label>}
+              {ask.kind==='return_to_initial_x'&&<NumericField label="地面 y（无地面限制可留空）" value={ask.y} unitKind="length"
+                onTransient={y=>fields.transient(`asks.${ask.id}.y`,y)} onCommit={y=>fields.commit(`asks.${ask.id}.y`,y)} />}
               {(ask.kind === 'field_entry' || ask.kind === 'field_exit') && <label className="field-control">查询场区
                 <select value={ask.fieldId??''} onChange={(e)=>fields.commit(`asks.${ask.id}.fieldId`,e.target.value||null)}>
                   <option value="">{ask.kind==='field_exit'?'按场景的出场策略':'请选择场区'}</option>

@@ -202,3 +202,21 @@ describe('独立物体与叠加场',()=>{
     expect(solve(sc)).toMatchObject({ok:false,report:{blockers:[{path:`bodies.${sc.bodies[0].id}.charge`}]}});
   });
 });
+
+describe('半空间场边界返回（DEF-032）',()=>{
+  it('多边形半空间场中圆周恰在边界返回，仍输出首返时刻与离地高度',()=>{
+    const sc=baseScene('半空间返回');
+    sc.bodies=[makeBall({x:0,y:0.8},0.0001,15/7,0)];
+    sc.bodies[0].mass=0.1;sc.bodies[0].charged=true;
+    const half:FieldShape={kind:'polygon',vertices:[{x:0,y:-1},{x:10000,y:-1},{x:10000,y:10000},{x:0,y:10000}]};
+    const g=makeField('uniform_gravity',{x:0,y:0},{kind:'global'});g.vector={x:0,y:-10};
+    const e=makeField('uniform_electric',{x:0,y:0},half);e.vector={x:0,y:10000};
+    const b=makeField('uniform_magnetic',{x:0,y:0},half);b.vector={x:0,y:0};b.bz=-0.5;
+    sc.fields=[g,e,b];
+    sc.fieldPlayback={...DEFAULT_FIELD_PLAYBACK,duration:2000*Math.PI,exit:'continue'};
+    sc.asks=[makeAsk('return_to_initial_x',{y:0})];
+    const sol=ok(solve(sc));
+    expect(answer(sol,sc.asks[0].id).value).toBeCloseTo(2000*Math.PI,0);
+    expect(answer(sol,sc.asks[0].id+'.y').value).toBeCloseTo(0.8+60000/7,0);
+  });
+});

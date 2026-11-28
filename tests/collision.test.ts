@@ -24,6 +24,20 @@ describe('双球光滑碰撞',()=>{
     expect(pb.x-pa.x).toBe(1);
   });
 
+  it('afterCollision 与 collisionRadius 为 null 时回退默认值，碰后速度不变（DEF-013）',()=>{
+    const base=collisionExample('elastic');
+    base.collision!.afterCollision=3;
+    for(const b of base.bodies)b.collisionRadius=0.25;
+    const sc=collisionExample('elastic');
+    sc.collision!.afterCollision=null;
+    for(const b of sc.bodies)b.collisionRadius=null;
+    const sol=ok(solve(sc)),ref=ok(solve(base));
+    expect(answer(sol,sc.bodies[0].id+'.after.vx').value).toBeCloseTo(answer(ref,base.bodies[0].id+'.after.vx').value!);
+    expect(answer(sol,sc.bodies[1].id+'.after.vx').value).toBeCloseTo(answer(ref,base.bodies[1].id+'.after.vx').value!);
+    for(const id of ['collision_t','kinetic_after'])
+      expect(answer(sol,id).value).toBeCloseTo(answer(ref,id).value!);
+  });
+
   it('完全非弹性正碰共速，动能损失按约化质量计算',()=>{
     const sc=collisionExample('inelastic'),sol=ok(solve(sc));
     expect(answer(sol,'collision_t').value).toBeCloseTo(5/3);
@@ -117,6 +131,8 @@ describe('双球光滑碰撞',()=>{
     sc.fields=[makeField('uniform_gravity',{x:0,y:0})];
     expect(solve(sc)).toMatchObject({ok:false});
     sc.fields=[];sc.bodies[0].charged=true;sc.bodies[0].charge=1;
+    expect(solve(sc)).toMatchObject({ok:true});
+    sc.bodies[1].charged=true;sc.bodies[1].charge=1;
     expect(solve(sc)).toMatchObject({ok:false});
     sc.bodies.push(makeBall({x:20,y:3}));
     expect(solve(sc)).toMatchObject({ok:false});

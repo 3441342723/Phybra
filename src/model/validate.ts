@@ -8,6 +8,9 @@ const ASK_LABEL: Record<string, string> = {
   field_exit: '首次离开场区',
   field_entry: '首次进入场区',
   collision: '碰撞时刻与碰前碰后状态',
+  motion_analysis:'场中运动性质、回旋半径与周期',
+  return_to_initial_x:'首次返回初始位置的竖直线',
+  custom:'保留的题目待求（尚无专用求解）',
 };
 
 export function askLabel(ask: Pick<Ask, 'kind'>): string {
@@ -21,9 +24,10 @@ export function validateScene(scene: Scene): CheckReport {
   const push = (code: any, path: string, message: string) => blockers.push({ code, path, message });
   if (scene.dimension !== undefined && scene.dimension !== '2d' && scene.dimension !== '3d') push('unsupported_combo','dimension','无法识别坐标维度。');
   if(scene.dimension!=='3d') {
-    const nonzero=(value:unknown)=>value!==undefined&&value!==0;
+    // null 是 AI 草稿的“无此分量”占位，与 undefined 同义，不算三维分量。
+    const nonzero=(value:unknown)=>value!==undefined&&value!==null&&value!==0;
     for(const b of scene.bodies) {
-      if((b.pos.z!==undefined&&b.pos.z!==0)||(b.vel.z!==undefined&&b.vel.z!==0))push('unsupported_combo','bodies.'+b.id+'.pos.z','此物体有空间位置或速度，请启用三维坐标，或在三维属性中将 z、vz 设为 0。');
+      if(nonzero(b.pos.z)||nonzero(b.vel.z))push('unsupported_combo','bodies.'+b.id+'.pos.z','此物体有空间位置或速度，请启用三维坐标，或在三维属性中将 z、vz 设为 0。');
     }
     for(const f of scene.fields??[]) {
       if(f.enabled&&[f.position.z,f.vector.z,f.bx,f.by,f.gradient?.z].some(nonzero))push('unsupported_combo','fields.'+f.id,'此场有三维分量，请启用三维坐标，或在三维属性中将新增分量设为 0。');
@@ -34,7 +38,8 @@ export function validateScene(scene: Scene): CheckReport {
   if (scene.bodies.length > 1 && !(scene.bodies.length === 2 && scene.bodies.every(b=>b.kind==='ball'))) push('unsupported_combo', 'bodies', '多物体目前支持两个小球的光滑碰撞。');
   if (scene.bodies.some(b => b.kind !== 'ball')) {
     if (scene.gravity === null) push('missing_required', 'gravity', '缺少重力加速度 g（可填 9.8 或 10）');
-    else if (scene.gravity <= 0) push('constraint_conflict', 'gravity', 'g 必须为正数');
+    // 水平面内圆周运动可忽略重力（g=0）；其余非小球题型仍需正重力。
+    else if (scene.gravity < 0 || (scene.gravity === 0 && !scene.bodies.every(b => b.kind === 'circular'))) push('constraint_conflict', 'gravity', 'g 必须为正数');
     if (scene.fields?.some(f => f.enabled) || scene.links?.some(l => l.bodyId !== null)) {
       push('unsupported_combo', 'bodies', '独立场和定点绳杆请搭配小球。');
     }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { flatThrowExample, inclineExample } from '../src/model/factory';
 import { activeSolution, initStore, reducer, type Store } from '../src/state/store';
+import { defaultLayout, fitPlaybackCamera, workspaceLayout } from '../src/state/layout';
 import { withField } from '../src/state/editing';
 import { solve } from '../src/solver';
 
@@ -135,5 +136,21 @@ describe('编辑 / 播放 / 视图状态分离', () => {
     st = reducer(st, { type: 'apply', scene: { ...st.present, gravity: 10, rev: oldRev + 1 } });
     st = reducer(st, { type: 'previewResult', rev: oldRev, result: { solution: r.solution, report: null } });
     expect(st.preview.solution).toBeNull();
+  });
+  it('apply/load 递增 fitSeq 触发自动取景（DEF-037）',()=>{
+    let st=base();
+    expect(st.fitSeq).toBe(0);
+    st=reducer(st,{type:'apply',scene:{...st.present,rev:st.present.rev+1}});
+    expect(st.fitSeq).toBe(1);
+    st=reducer(st,{type:'load',scene:inclineExample()});
+    expect(st.fitSeq).toBe(2);
+  });
+  it('播放取景允许缩小到千米尺度（DEF-037）',()=>{
+    const cam={scale:46,ox:90,oy:380};
+    const points=[{x:0,y:0.8},{x:4285,y:8572}];
+    const layout=workspaceLayout(defaultLayout(),1200,800,null);
+    const fitted=fitPlaybackCamera(cam,points,layout,1200,800);
+    expect(fitted.scale).toBeLessThan(1);
+    expect(fitted.scale).toBeGreaterThan(0.02);
   });
 });

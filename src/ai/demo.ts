@@ -1,11 +1,13 @@
 import { ELECTROMAGNETIC_EXAMPLES, flatThrowExample, inclineExample } from '../model/factory';
 import type { SceneDraft } from '../model/types';
+import { collisionFieldDraft } from './collision-field-example';
 
-export type DemoKind = 'incline' | 'flat' | 'plates';
+export type DemoKind = 'incline' | 'flat' | 'plates' | 'collision-fields';
 export const PLATES_PROBLEM = '质量为 2 kg、电荷量为 +1 C 的小球从左板处静止释放。两板间距为 6 m，左板电势比右板高 12 V。不计重力和边缘效应，求小球到达右板的时间、速度和电场做功。';
 
 /** 本地演示草稿：不调用任何云端服务，仅用于验证"AI 草稿 → 审阅 → 替换可撤销"流程 */
 export function demoDraft(kind: DemoKind, rawText: string): SceneDraft {
+  if(kind==='collision-fields')return collisionFieldDraft();
   if (kind === 'plates') {
     const scene = ELECTROMAGNETIC_EXAMPLES.find(example => example.id === 'parallel-plate-acceleration')!.build();
     const body = 'bodies.' + scene.bodies[0].id;

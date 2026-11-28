@@ -19,6 +19,12 @@
 
 AI 读题默认调用 Sites 同源函数 `POST /functions/v1/app/interpret`，由服务端调用 Qoder Cloud Agents；浏览器不接触任何云端凭据。未开启后端时该接口返回 `service_not_configured`，手动搭建与计算不受影响。设置 `VITE_AI_DEMO=1` 可强制回到内置演示草稿。
 
+网页与读题服务共享小球、电荷、场和分阶段草稿格式；更新时应一起部署前端及整个 `functions/` 包。若发布后仍显示 `bodies.0.kind 不是支持的物体类型`，先用 Ctrl+F5 重新加载页面：旧版页面只认识物块及旧抛体，会拒绝合法的 `ball` 小球。新版请求和响应携带格式版本号，检测到不同版本时会明确提示刷新或同时更新两端。
+
+可先运行 `npm run build`，再运行 `node tests/browser-ai-fields.mjs --production` 验证实际构建产物的读题、草稿、阶段应用、求解和撤销流程。该检查启动独立本地服务，使用实际客户端及 Function，仅以固定草稿替代 Cloud Agents，不使用凭据，不代表线上模型实测。浏览器默认使用 Chrome；本机只有 Edge 时在 PowerShell 先设置 `$env:CHROME_PATH='C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'`。修订题全文及答案见 [碰撞与复合场修订题](docs/碰撞与复合场修订题.md)。
+
+AI 草稿格式校验失败时，在能读取原始题面/题图且请求大小允许的情况下，服务端最多发起一次格式修正，并继续严格校验。尚未传完的 JSON 继续等待；修正仍失败时显示原因类别和“重新生成草稿”，不要求用户补全文字。重新生成使用新任务标识，避免一直复用失败结果；等待中断后的续取仍使用同一任务。修正结果不会直接替换当前场景，也不会用本地示例冒充 AI 输出。可分别用 `node tests/browser-ai-fields.mjs --repair`、`node tests/browser-ai-fields.mjs --regenerate` 验证自动修正和失败后重新生成流程；两者均为模拟云端返回的本地浏览器检查。
+
 平行板采用理想匀强电场并忽略边缘效应。碰撞首版模拟两个自由小球的瞬时光滑碰撞；暂不包括外力、转动、切向摩擦、多次碰撞和物体形变。
 
 ## 本地运行

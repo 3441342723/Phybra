@@ -101,7 +101,10 @@ export type AskKind =
   | 'work_between'
   | 'field_exit'
   | 'field_entry'
-  | 'collision';
+  | 'collision'
+  | 'motion_analysis'
+  | 'return_to_initial_x'
+  | 'custom';
 
 export type EnergyEvent = 'initial' | 'apex' | 'landing' | 'end_of_support' | 'final_rest' | 'field_exit' | 'collision';
 export type EnergyPoint = { kind: 'time'; t: Num } | { kind: 'event'; event: EnergyEvent };
@@ -109,6 +112,8 @@ export type EnergyPoint = { kind: 'time'; t: Num } | { kind: 'event'; event: Ene
 export type Ask = {
   id: string;
   kind: AskKind;
+  /** Verbatim target retained when it has no dedicated solver query yet. */
+  question?: string;
   /** 视 kind 使用：at_time→t，at_height→y，at_position→x，at_velocity→v */
   t: Num;
   x: Num;
@@ -242,6 +247,8 @@ export type DraftItem = { path: string; label: string; value: string; quote?: st
 export type SceneDraft = {
   source: { rawText?: string; imageName?: string; demo?: boolean };
   scene: Scene;
+  /** Independently editable phases; downstream velocities can use a prior collision result. */
+  stages?: Array<{id:string;title:string;scene:Scene;velocityFrom?:{stageId:string;sourceBodyId:string;targetBodyId:string}}>;
   known: DraftItem[];
   assumed: DraftItem[];
   unknown: Array<{ path: string; label: string }>;

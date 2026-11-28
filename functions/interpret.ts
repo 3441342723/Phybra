@@ -1,4 +1,6 @@
+import { SYSTEM_PROMPT, SCENE_CONTRACT_REVISION } from './scene-prompt.ts';
 import { validateSceneDraft, DraftContractError } from './draft-schema.ts';
+import { draftDiagnostic, repairContent, unfinishedJson, type DraftDiagnostic } from './draft-repair.ts';
 
 // Trusted server-only configuration. The origin is copied from the Sites runtime
 // context (get_context.runtime.cloudAgents.apiOrigin); QODER_PAT is read only by the
@@ -6,72 +8,25 @@ import { validateSceneDraft, DraftContractError } from './draft-schema.ts';
 export const CLOUD_API_ORIGIN = 'https://api.qoder.com.cn';
 export const CLOUD_REQUEST_TIMEOUT_MS = 12000;
 
-const APP_SCOPE = 'physics-workbench-p3-1';
+export const APP_SCOPE = 'physics-workbench-p3-1';
 const PURPOSE = 'scene-interpret';
 const MAX_TEXT_CHARS = 8000;
 const MAX_IMAGE_BYTES = 600 * 1024;
-// The Sites gateway drops a request at about 100 s and answers 504 on its own, so
-// the budget must finish earlier for the caller to receive our error code instead.
-const TOTAL_BUDGET_MS = 85000;
-const POLL_INTERVAL_MS = 1500;
+// The Sites gateway drops a request at about 100 s, so no single call may wait for
+// the model. Start returns 202 immediately; the browser polls the result endpoint.
+const RESULT_READ_BUDGET_MS = 10000;
+const JOB_STALE_MS = 10 * 60 * 1000;
 const MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
-
-const SYSTEM_PROMPT = `你是高中物理场景建模器。只输出一个 JSON 对象，不要输出 Markdown 代码块、解释或任何额外文字。
-
-JSON 必须严格满足以下结构（字段一个都不能少）：
-{
-  "source": {},
-  "scene": {
-    "version": 2,
-    "rev": 0,
-    "title": "题目简述",
-    "gravity": number|null,
-    "bodies": [{ "id": string, "kind": "block"|"projectile", "name": string,
-                 "attach": {"support": string, "s": number|null}|null,
-                 "pos": {"x": number|null, "y": number|null},
-                 "vel": {"x": number|null, "y": number|null},
-                 "mass": number|null, "accel": number|null }],
-    "supports": [{ "id": string, "name": string, "kind": "horizontal"|"incline",
-                   "a": {"x": number, "y": number}, "length": number|null, "angleDeg": number|null }],
-    "contacts": [{ "id": string, "body": string, "support": string,
-                   "mu_s": number|null, "mu_k": number|null }],
-    "asks": [{ "id": string, "kind": "at_time"|"at_height"|"at_position"|"at_velocity"|"landing"|"apex"|"rest"|"end_of_support"|"friction_state",
-               "t": number|null, "x": number|null, "y": number|null, "v": number|null }],
-    "params": [{ "name": string, "value": number|null,
-                 "unit": "length"|"time"|"speed"|"accel"|"mass"|"angle"|"none",
-                 "min": number, "max": number, "step": number }],
-    "bindings": { "对象属性路径": "params 中已存在的 name" }
-  },
-  "known": [{ "path": string, "label": string, "value": string, "quote"?: string, "basis"?: string }],
-  "assumed": [{ "path": string, "label": string, "value": string, "quote"?: string, "basis"?: string }],
-  "unknown": [{ "path": string, "label": string }],
-  "uncertain": [string],
-  "warnings": [string]
-}
-
-建模规则：
-1. 题目没有明给的物理量一律填 null。绝不猜测，绝不默认成 0，也绝不按图片中线段或角度的比例反推数值。
-2. 图片只用来识别题目文字、符号与几何关系。从图片读出的数值必须能在题面文字或标注中找到依据；找不到依据就填 null 并列入 unknown，同时把该 path 写进 uncertain。
-3. 每个集合内的 id 必须唯一；bodies.attach.support、contacts.body/support 必须引用已存在的 id。
-4. known/assumed/unknown 的 path 与 uncertain 的每一项都必须能解析到 scene 里的字段，形如 "supports.s1.angleDeg"、"bodies.b1.mass"、"asks.a1.t"；bindings 的键同理，bindings 的值必须是 params 中已存在的 name。
-5. known 记录题目明说的量，并把题面原文片段写进 quote；assumed 记录你补充的常规条件（例如 g 取 9.8、不计空气阻力），理由写进 basis；unknown 记录题目要求或需要但缺失的量。
-6. asks 只写题目要求解的目标；求解所需的中间未知量放 unknown。
-7. params 用于可调节量，min<=max 且 step>0；无明确范围时用合理的物理范围。
-8. 单位统一用国际单位制，角度用度。
-9. 无法归入上述结构的，写进 warnings，不要私自扩展字段。
-10. supports.length 必须是有限正数。它是建模用的轨道范围，不是题给物理量：题目未给边界时取足以覆盖整个运动过程的范围（例如水平面取 100 m），并把这一约定写进 assumed。不要创建与运动无关的支撑面；平抛/斜抛在空中运动时不需要地面 support 与 contact。
-11. asks 的 kind 必须匹配题目所求，且 at_time/at_height/at_position/at_velocity 必须给出对应目标数值（t/y/x/v）。题目没有给目标值时，改用 rest、landing、apex、end_of_support、friction_state 这类无需目标值的 kind：求"滑行距离/停下时间"用 rest，求"到达底端"用 end_of_support。
-12. kind 为 horizontal 的支撑面 angleDeg 必须填 0（这是水平面的定义值，不属于猜测）；kind 为 incline 时 angleDeg 只能来自题面，未给就填 null。
-13. 用于求解的 contact 需要 mu_s：题目明给就用题给值；题目说"光滑"填 0；题目只给 mu_k 时取 mu_s = mu_k，并把这一常规近似写进 assumed（注明题目未给静摩擦因数）。与求解无关的接触才允许 mu_s 为 null。
-14. kind 为 block 的物体 attach 不能为 null：support 填该物体 contact 指向的支撑面 id，s 填沿面位置（起点/顶端按题意换算，未知时 s 可为 null）。只有 projectile 才允许 attach 为 null。输出前自检 10～14 条。`;
 
 export class InterpretError extends Error {
   status: number;
   code: string;
-  constructor(code: string, status: number, message?: string) {
+  diagnostic?: DraftDiagnostic;
+  constructor(code: string, status: number, message?: string, diagnostic?: DraftDiagnostic) {
     super(message ?? code);
     this.code = code;
     this.status = status;
+    this.diagnostic = diagnostic;
   }
 }
 
@@ -131,18 +86,23 @@ const EXTENSIONS: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg'
 export type InterpretInput = {
   text: string;
   image: { base64: string; mediaType: string; name: string } | null;
+  generationId?: string;
 };
 
 export function parseInterpretInput(body: unknown): InterpretInput {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) throw new InterpretError('invalid_payload', 400);
   const input = body as Record<string, unknown>;
+  if (input.generationId !== undefined && (typeof input.generationId !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(input.generationId))) {
+    throw new InterpretError('invalid_generation_id', 400);
+  }
+  const generation = typeof input.generationId === 'string' ? { generationId: input.generationId } : {};
   if (typeof input.text !== 'string') throw new InterpretError('invalid_text', 400);
   const text = input.text.trim();
   if (!text) throw new InterpretError('invalid_text', 400, 'text is empty');
   if (text.length > MAX_TEXT_CHARS) throw new InterpretError('text_too_large', 413);
   if (input.imageName !== undefined && typeof input.imageName !== 'string') throw new InterpretError('invalid_image_name', 400);
   const imageName = typeof input.imageName === 'string' ? input.imageName.slice(0, 200) : '';
-  if (input.imageBase64 === undefined || input.imageBase64 === null || input.imageBase64 === '') return { text, image: null };
+  if (input.imageBase64 === undefined || input.imageBase64 === null || input.imageBase64 === '') return { text, image: null, ...generation };
   if (typeof input.imageBase64 !== 'string' || !base64Pattern.test(input.imageBase64) || input.imageBase64.length % 4 === 1) {
     throw new InterpretError('invalid_image_base64', 400);
   }
@@ -158,7 +118,7 @@ export function parseInterpretInput(body: unknown): InterpretInput {
     throw new InterpretError('unsupported_image_type', 415);
   }
   const mediaType = detectedType;
-  return { text, image: { base64: input.imageBase64, mediaType, name: imageName } };
+  return { text, image: { base64: input.imageBase64, mediaType, name: imageName }, ...generation };
 }
 
 const inFlight = new Map<string, Promise<Record<string, unknown>>>();
@@ -208,7 +168,7 @@ function stripToFences(text: string): string {
   return (fenced ? fenced[1] : trimmed).trim();
 }
 
-function extractDraft(text: string, source: Record<string, unknown>): Record<string, unknown> {
+export function extractDraft(text: string, source: Record<string, unknown>): Record<string, unknown> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(stripToFences(text));
@@ -223,11 +183,12 @@ function extractDraft(text: string, source: Record<string, unknown>): Record<str
     return validateSceneDraft(candidate);
   } catch (error) {
     const reason = error instanceof DraftContractError ? error.message.slice(0, 160) : 'unknown';
-    throw new InterpretError('ai_draft_invalid', 502, reason);
+    throw new InterpretError('ai_draft_invalid', 502, reason, draftDiagnostic('ai_draft_invalid', reason));
   }
 }
 
 const MAX_EVENT_PAGES = 20;
+const MAX_SESSION_PAGES = 10;
 
 // A long session produces more than one page of events; reading only the first
 // page would never reach the final answer.
@@ -236,8 +197,9 @@ async function readEventTexts(
   sessionId: string,
   deadline: number,
   typeCounts: Map<string, number>,
-): Promise<{ texts: string[]; hasMore: boolean }> {
+): Promise<{ texts: string[]; hasMore: boolean; original: Array<Record<string, unknown>> }> {
   const texts: string[] = [];
+  let original: Array<Record<string, unknown>> = [];
   let page: string | undefined;
   let hasMore = false;
   for (let index = 0; index < MAX_EVENT_PAGES && Date.now() < deadline; index += 1) {
@@ -246,6 +208,9 @@ async function readEventTexts(
     for (const event of (Array.isArray(result?.data) ? result.data : [])) {
       const type = typeof event?.type === 'string' ? event.type : 'unknown';
       typeCounts.set(type, (typeCounts.get(type) ?? 0) + 1);
+      if (type === 'user.message' && !original.length && Array.isArray(event.content)) {
+        original = event.content.filter((block: Record<string, unknown>) => block?.type === 'text' || block?.type === 'image');
+      }
       if (type !== 'agent.message') continue;
       const text = collectText(event.content);
       if (text.length > 0) texts.push(text);
@@ -254,111 +219,223 @@ async function readEventTexts(
     if (!hasMore || typeof result?.next_page !== 'string' || !result.next_page) break;
     page = result.next_page;
   }
-  return { texts, hasMore };
+  return { texts, hasMore, original };
 }
 
-export async function interpretRequest(
-  client: CloudClient,
-  body: unknown,
-  sleep: (ms: number) => Promise<void>,
-): Promise<Record<string, unknown>> {
-  const { text, image } = parseInterpretInput(body);
-  const deadline = Date.now() + TOTAL_BUDGET_MS;
+function jobFingerprint(text: string, image: InterpretInput['image'], generationId?: string): Promise<string> {
+  return digest(canonical({ scope: APP_SCOPE, contract: SCENE_CONTRACT_REVISION, text, image: image?.base64 ?? null, ...(generationId ? { generationId } : {}) }));
+}
 
-  const models = await client.request('/api/v1/cloud/models');
-  const enabled: string[] = (Array.isArray(models?.data) ? models.data : [])
-    .filter((model: Record<string, unknown>) => model?.is_enabled === true && typeof model?.id === 'string')
-    .map((model: Record<string, unknown>) => model.id as string)
-    .sort();
-  if (!enabled.length) throw new InterpretError('ai_model_unavailable', 503);
-  // Stable selection: the model list is sorted, so the same account configuration
-  // always resolves to the same id. Re-pin here after reading the runtime log.
-  const model = enabled[0];
-  log('interpret_start', { model, enabledModels: enabled.slice(0, 20), hasImage: Boolean(image), textChars: text.length });
+// Sessions carry the job fingerprint in metadata; the list API has no metadata
+// filter, so scan recent pages and match exactly one.
+async function findJobSession(client: CloudClient, jobId: string): Promise<Record<string, unknown> | null> {
+  let page: string | undefined;
+  const matches = new Map<string, Record<string, unknown>>();
+  for (let index = 0; index < MAX_SESSION_PAGES; index += 1) {
+    const result = await client.request(`/api/v1/cloud/sessions?limit=100&order=desc${page ? `&page=${encodeURIComponent(page)}` : ''}`);
+    for (const session of (Array.isArray(result?.data) ? result.data : [])) {
+      if (session && typeof session === 'object' && typeof session.id === 'string'
+        && !session.archived_at && session.metadata?.job === jobId) {
+        matches.set(session.id, session);
+      }
+    }
+    if (result?.has_more !== true || typeof result?.next_page !== 'string' || !result.next_page) break;
+    page = result.next_page;
+  }
+  if (matches.size > 1) throw new InterpretError('ai_resource_ambiguous', 503);
+  return matches.size === 1 ? [...matches.values()][0] : null;
+}
 
-  const agent = await ensureResource(client, 'agents', {
-    name: '物理读题建模器',
-    model,
-    system: SYSTEM_PROMPT,
-    tools: [],
-    metadata: { app: APP_SCOPE, purpose: PURPOSE },
-  });
-  const environment = await ensureResource(client, 'environments', {
-    name: '物理读题建模器运行环境',
-    config: { type: 'cloud' },
-    metadata: { app: APP_SCOPE, purpose: PURPOSE },
-  });
-  if (typeof agent.id !== 'string' || !Number.isInteger(agent.version)) throw new InterpretError('ai_response_invalid', 502);
-  if (typeof environment.id !== 'string') throw new InterpretError('ai_response_invalid', 502);
+async function hasUserMessage(client: CloudClient, sessionId: string): Promise<boolean> {
+  const result = await client.request(`/api/v1/cloud/sessions/${sessionId}/events?order=asc&limit=100`);
+  return (Array.isArray(result?.data) ? result.data : [])
+    .some((event: Record<string, unknown>) => event?.type === 'user.message');
+}
 
-  const session = await client.request('/api/v1/cloud/sessions', {
-    method: 'POST',
-    body: {
-      agent: { type: 'agent', id: agent.id, version: agent.version },
-      environment_id: environment.id,
-      title: `读题 ${text.slice(0, 40)}`,
-      metadata: { app: APP_SCOPE, purpose: PURPOSE },
-    },
-  });
-  if (typeof session?.id !== 'string') throw new InterpretError('ai_response_invalid', 502);
-
+export function messageContent(text: string, image: InterpretInput['image']): Array<Record<string, unknown>> {
   const content: Array<Record<string, unknown>> = [
     { type: 'text', text: image ? `${text}\n\n（随题附题图一张，题面数值以文字与图中标注为准。）` : text },
   ];
   if (image) content.push({ type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.base64 } });
-
-  await client.request(`/api/v1/cloud/sessions/${session.id}/events`, {
-    method: 'POST',
-    body: { events: [{ type: 'user.message', content }] },
-  });
-
-  const source: Record<string, unknown> = { rawText: text };
-  if (image?.name) source.imageName = image.name;
-
-  let lastFailure: InterpretError | null = null;
-  let sawAgentReply = false;
-  let polls = 0;
-  // Keep the number of polls bounded even when a test or platform adapter
-  // supplies a no-op sleep implementation. In the live runtime the 2 s sleep
-  // still enforces the 110 s wall-clock budget; this guard prevents a tight
-  // loop from exhausting CPU when the clock does not advance between polls.
-  const maxPolls = Math.ceil(TOTAL_BUDGET_MS / POLL_INTERVAL_MS);
-  const typeCounts = new Map<string, number>();
-  let lastHasMore = false;
-  while (Date.now() < deadline && polls < maxPolls) {
-    const { texts, hasMore } = await readEventTexts(client, session.id, deadline, typeCounts);
-    polls += 1;
-    lastHasMore = hasMore;
-    if (texts.length > 0) sawAgentReply = true;
-    for (let index = texts.length - 1; index >= 0; index -= 1) {
-      try {
-        const draft = extractDraft(texts[index], source);
-        log('interpret_done', { sessionId: session.id, model, polls, elapsedMs: Date.now() - (deadline - TOTAL_BUDGET_MS) });
-        return draft;
-      } catch (error) {
-        if (error instanceof InterpretError) lastFailure = error;
-      }
-    }
-    // A streamed answer can be split across several agent.message events.
-    if (texts.length > 1) {
-      try {
-        const draft = extractDraft(texts.join(''), source);
-        log('interpret_done', { sessionId: session.id, model, polls, elapsedMs: Date.now() - (deadline - TOTAL_BUDGET_MS) });
-        return draft;
-      } catch (error) {
-        if (error instanceof InterpretError) lastFailure = error;
-      }
-    }
-    await sleep(POLL_INTERVAL_MS);
-  }
-
-  log('interpret_incomplete', {
-    sessionId: session.id, model, polls, elapsedMs: Date.now() - (deadline - TOTAL_BUDGET_MS),
-    sawAgentReply, lastHasMore, eventTypes: Object.fromEntries(typeCounts),
-    ...(lastFailure ? { lastErrorCode: lastFailure.code, lastErrorReason: lastFailure.message.slice(0, 160) } : {}),
-  });
-  if (sawAgentReply && lastFailure) throw lastFailure;
-  throw new InterpretError(sawAgentReply ? 'ai_draft_invalid' : 'ai_timeout', 504);
+  return content;
 }
 
-export { MAX_IMAGE_BYTES, MAX_TEXT_CHARS, TOTAL_BUDGET_MS };
+const startingJobs = new Map<string, Promise<Record<string, unknown>>>();
+
+/** Accept a problem: reuse or create the cloud session, send the prompt once, return immediately. */
+export async function startInterpret(client: CloudClient, body: unknown): Promise<Record<string, unknown>> {
+  const { text, image, generationId } = parseInterpretInput(body);
+  const jobId = await jobFingerprint(text, image, generationId);
+  return startJob(client, jobId, messageContent(text, image), { text, hasImage: Boolean(image), imageName: image?.name });
+}
+
+async function startJob(client: CloudClient, jobId: string, content: Array<Record<string, unknown>>, info: {
+  text: string; hasImage: boolean; imageName?: string; repairOf?: string;
+}): Promise<Record<string, unknown>> {
+  const pending = startingJobs.get(jobId);
+  if (pending) return pending;
+  const task = (async () => {
+    const existing = await findJobSession(client, jobId);
+    if (existing && typeof existing.id === 'string') {
+      // A previous start may have crashed between session creation and prompt send.
+      if (!(await hasUserMessage(client, existing.id))) {
+        await client.request(`/api/v1/cloud/sessions/${existing.id}/events`, {
+          method: 'POST',
+          body: { events: [{ type: 'user.message', content }] },
+          idempotencyKey: `sites-prompt-${jobId}`,
+        });
+      }
+      log('interpret_resumed', { jobId, sessionId: existing.id });
+      return { ok: true, jobId, resumed: true };
+    }
+
+    const models = await client.request('/api/v1/cloud/models');
+    const enabled: string[] = (Array.isArray(models?.data) ? models.data : [])
+      .filter((model: Record<string, unknown>) => model?.is_enabled === true && typeof model?.id === 'string')
+      .map((model: Record<string, unknown>) => model.id as string)
+      .sort();
+    // 'auto' is a console routing alias: sessions created with it stay running and
+    // never emit agent.message (observed in runtime logs 2026-11-27), so pin a real model.
+    const concrete = enabled.filter((id) => id !== 'auto');
+    if (!concrete.length) {
+      const raw = Array.isArray(models?.data) ? models.data : [];
+      log('interpret_models_unavailable', { rawCount: Array.isArray(models?.data) ? raw.length : null, enabledCount: enabled.length,
+        sample: raw.slice(0, 3).map((m: Record<string, unknown>) => ({ id: typeof m?.id === 'string' ? m.id : null, keys: m && typeof m === 'object' ? Object.keys(m).slice(0, 12) : [] })) });
+      throw new InterpretError('ai_model_unavailable', 503);
+    }
+    const model = concrete.includes('fast') ? 'fast' : concrete[0];
+    log('interpret_start', { jobId, model, enabledModels: enabled.slice(0, 20), hasImage: info.hasImage, textChars: info.text.length });
+
+    const agent = await ensureResource(client, 'agents', {
+      name: '物理读题建模器',
+      model,
+      system: SYSTEM_PROMPT,
+      tools: [],
+      metadata: { app: APP_SCOPE, purpose: PURPOSE },
+    });
+    const environment = await ensureResource(client, 'environments', {
+      name: '物理读题建模器运行环境',
+      config: { type: 'cloud' },
+      metadata: { app: APP_SCOPE, purpose: PURPOSE },
+    });
+    if (typeof agent.id !== 'string' || !Number.isInteger(agent.version)) throw new InterpretError('ai_response_invalid', 502);
+    if (typeof environment.id !== 'string') throw new InterpretError('ai_response_invalid', 502);
+
+    const session = await client.request('/api/v1/cloud/sessions', {
+      method: 'POST',
+      body: {
+        agent: { type: 'agent', id: agent.id, version: agent.version },
+        environment_id: environment.id,
+        title: `读题 ${info.text.slice(0, 40)}`,
+        metadata: { app: APP_SCOPE, purpose: PURPOSE, job: jobId, ...(info.imageName ? { imageName: info.imageName } : {}), ...(info.repairOf ? { repairOf: info.repairOf } : {}) },
+      },
+      idempotencyKey: `sites-session-${APP_SCOPE}-${jobId}`,
+    });
+    if (typeof session?.id !== 'string') throw new InterpretError('ai_response_invalid', 502);
+
+    await client.request(`/api/v1/cloud/sessions/${session.id}/events`, {
+      method: 'POST',
+      body: { events: [{ type: 'user.message', content }] },
+      idempotencyKey: `sites-prompt-${jobId}`,
+    });
+    log('interpret_accepted', { jobId, sessionId: session.id, model });
+    return { ok: true, jobId, resumed: false };
+  })();
+  startingJobs.set(jobId, task);
+  try {
+    return await task;
+  } finally {
+    if (startingJobs.get(jobId) === task) startingJobs.delete(jobId);
+  }
+}
+
+function createdAtMs(session: Record<string, unknown>): number | null {
+  const raw = session.created_at;
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw > 1e12 ? raw : raw * 1000;
+  if (typeof raw === 'string') {
+    const parsed = Date.parse(raw);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+/** Poll one job: return the validated draft, a pending marker, or a stable failure. */
+export async function interpretResult(client: CloudClient, jobId: unknown): Promise<{ status: number; body: Record<string, unknown> }> {
+  if (typeof jobId !== 'string' || !/^[a-f0-9]{64}$/.test(jobId)) throw new InterpretError('invalid_job', 400);
+  return readJobResult(client, jobId, true);
+}
+
+async function readJobResult(client: CloudClient, jobId: string, allowRepair: boolean): Promise<{ status: number; body: Record<string, unknown> }> {
+  const session = await findJobSession(client, jobId);
+  if (!session || typeof session.id !== 'string') throw new InterpretError('job_not_found', 404);
+
+  const typeCounts = new Map<string, number>();
+  const { texts, hasMore, original } = await readEventTexts(client, session.id, Date.now() + RESULT_READ_BUDGET_MS, typeCounts);
+  const source: Record<string, unknown> = {};
+  const metadata = session.metadata as Record<string, unknown> | undefined;
+  if (typeof metadata?.imageName === 'string') source.imageName = metadata.imageName;
+  const createdAt = createdAtMs(session);
+  const stale = createdAt !== null && Date.now() - createdAt > JOB_STALE_MS;
+  const pending = (phase = 'generating') => ({ status: 202, body: { ok: true, pending: true, jobId, phase } });
+  if (hasMore) {
+    if (stale) throw new InterpretError('ai_timeout', 504);
+    return pending();
+  }
+
+  let lastFailure: InterpretError | null = null;
+  for (let index = texts.length - 1; index >= 0; index -= 1) {
+    try {
+      const draft = extractDraft(texts[index], source);
+      log('interpret_done', { jobId, sessionId: session.id });
+      return { status: 200, body: draft };
+    } catch (error) {
+      if (error instanceof InterpretError) lastFailure = error;
+    }
+  }
+  // A streamed answer can be split across several agent.message events.
+  if (texts.length > 1) {
+    try {
+      const draft = extractDraft(texts.join(''), source);
+      log('interpret_done', { jobId, sessionId: session.id });
+      return { status: 200, body: draft };
+    } catch (error) {
+      if (error instanceof InterpretError) lastFailure = error;
+    }
+  }
+  if (texts.length > 0 && lastFailure) {
+    // agent.message can contain a partial JSON stream. Never reject or repair it
+    // while brackets/strings are unfinished; another poll may finish the reply.
+    if (lastFailure.code === 'ai_draft_unparseable' && unfinishedJson(texts.join(''))) {
+      if (stale) throw new InterpretError('ai_timeout', 504);
+      return pending();
+    }
+    if (allowRepair) {
+      const content = repairContent(original, texts.join(''), lastFailure.message);
+      if (content) {
+        const repairId = await digest(canonical({ jobId, contract: SCENE_CONTRACT_REVISION, attempt: 1 }));
+        const accepted = await startJob(client, repairId, content, {
+          text: '修正草稿格式', hasImage: original.some(block => block.type === 'image'),
+          imageName: typeof metadata?.imageName === 'string' ? metadata.imageName : undefined, repairOf: jobId,
+        });
+        if (accepted.resumed === true) {
+          const result = await readJobResult(client, repairId, false);
+          if (result.status === 202) return pending('repairing');
+          return { status: 200, body: { ...result.body, warnings: [...result.body.warnings as string[], 'AI 草稿已自动修正一次格式，请核对题目条件后应用。'] } };
+        }
+        log('interpret_repair_started', { jobId, sessionId: session.id, repairJobId: repairId, diagnostic: draftDiagnostic(lastFailure.code, lastFailure.message) });
+        return pending('repairing');
+      }
+    }
+    log('interpret_failed', { jobId, sessionId: session.id, lastErrorCode: lastFailure.code, lastErrorReason: draftDiagnostic(lastFailure.code, lastFailure.message) });
+    lastFailure.diagnostic = draftDiagnostic(lastFailure.code, lastFailure.message);
+    throw lastFailure;
+  }
+
+  if (stale) {
+    log('interpret_stale', { jobId, sessionId: session.id, eventTypes: Object.fromEntries(typeCounts) });
+    throw new InterpretError('ai_timeout', 504);
+  }
+  return { status: 202, body: { ok: true, pending: true, jobId } };
+}
+
+export { MAX_IMAGE_BYTES, MAX_TEXT_CHARS };

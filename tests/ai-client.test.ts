@@ -17,7 +17,22 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 const input = (extra: Partial<Parameters<typeof readProblem>[0]> = {}) =>
-  ({ text: TEXT, image: null, demo: 'incline' as const, ...extra });
+  ({ text: TEXT, image: null, demo: 'incline' as const, pollIntervalMs: 1, ...extra });
+
+const JOB = 'a'.repeat(64);
+const accepted = () => jsonResponse({ ok: true, jobId: JOB, resumed: false }, 202);
+const pending = () => jsonResponse({ ok: true, pending: true, jobId: JOB }, 202);
+
+/** 受理 + 轮询的标准应答：POST 202，GET 先 pending 后草稿。 */
+function asyncFlow(pendingCount = 0) {
+  let polls = 0;
+  return mockFetch(async (url, init) => {
+    if ((init?.method ?? 'GET') === 'POST') return accepted();
+    expect(url).toContain(`${ENDPOINT}?job=${JOB}`);
+    polls += 1;
+    return polls <= pendingCount ? pending() : jsonResponse(validDraft());
+  });
+}
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -48,11 +63,13 @@ describe('读题客户端边界', () => {
     await expect(readProblem(input())).rejects.toThrow();
   });
 
-  it('引用不存在的草稿路径被拒绝', async () => {
+  it('引用不存在的草稿路径被剔除并明示警告（DEF-042）', async () => {
     const bad = validDraft();
     bad.known[0].path = 'supports.doesNotExist.length';
     mockFetch(async () => jsonResponse(bad));
-    await expect(readProblem(input())).rejects.toThrow();
+    const draft = await readProblem(input());
+    expect(draft.known.some((k) => k.path === 'supports.doesNotExist.length')).toBe(false);
+    expect(draft.warnings.some((w) => w.includes('无法定位'))).toBe(true);
   });
 
   it('非 JSON 响应给出可理解提示', async () => {
@@ -67,9 +84,10 @@ describe('读题客户端边界', () => {
 
   it.each([
     ['image_too_large', 413, '600 KB'],
-    ['ai_draft_invalid', 502, '场景契约'],
-    ['ai_draft_unparseable', 502, '场景契约'],
+    ['ai_draft_invalid', 502, '请重新生成草稿'],
+    ['ai_draft_unparseable', 502, '请重新生成草稿'],
     ['service_not_configured', 503, '云端凭据'],
+    ['ai_model_unavailable', 503, '模型暂不可用'],
     ['ai_timeout', 504, '读题超时'],
   ])('服务端错误码 %s 映射为可理解提示', async (code, status, fragment) => {
     mockFetch(async () => jsonResponse({ ok: false, error: code }, status));
@@ -137,5 +155,73 @@ describe('读题客户端边界', () => {
 
   it('客户端校验与服务端契约一致：同一份草稿两边都接受', () => {
     expect(() => parseSceneDraft(validDraft())).not.toThrow();
+  });
+
+  it('受理后轮询取回草稿，source 用请求题面回填', async () => {
+    const fetchSpy = asyncFlow(1);
+    const draft = await readProblem(input());
+    expect(draft.scene.version).toBe(2);
+    expect(draft.source.rawText).toBe(TEXT);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(fetchSpy.mock.calls[0][1].method).toBe('POST');
+  });
+
+  it('pending 期间上报进度', async () => {
+    asyncFlow(2);
+    const onProgress = vi.fn();
+    await readProblem(input({ onProgress }));
+    expect(onProgress).toHaveBeenCalledTimes(2);
+    expect(onProgress.mock.calls[0][0].elapsedMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('202 缺少 jobId 时给出可理解提示', async () => {
+    mockFetch(async () => jsonResponse({ ok: true }, 202));
+    await expect(readProblem(input())).rejects.toThrow('任务标识');
+  });
+
+  it('轮询阶段的错误码同样映射', async () => {
+    mockFetch(async (_url, init) => ((init?.method ?? 'GET') === 'POST' ? accepted() : jsonResponse({ ok: false, error: 'ai_timeout' }, 504)));
+    await expect(readProblem(input())).rejects.toThrow('读题超时');
+  });
+
+  it('job_not_found 提示重新提交', async () => {
+    mockFetch(async (_url, init) => ((init?.method ?? 'GET') === 'POST' ? accepted() : jsonResponse({ ok: false, error: 'job_not_found' }, 404)));
+    await expect(readProblem(input())).rejects.toThrow('已失效');
+  });
+
+  it('轮询中途取消时抛出 AbortError', async () => {
+    const controller = new AbortController();
+    mockFetch(async (_url, init) => {
+      if ((init?.method ?? 'GET') === 'POST') return accepted();
+      controller.abort();
+      return pending();
+    });
+    await expect(readProblem(input({ signal: controller.signal }))).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('轮询瞬时网络故障可恢复', async () => {
+    let polls = 0;
+    mockFetch(async (_url, init) => {
+      if ((init?.method ?? 'GET') === 'POST') return accepted();
+      polls += 1;
+      if (polls === 1) throw new TypeError('Failed to fetch');
+      return jsonResponse(validDraft());
+    });
+    const draft = await readProblem(input());
+    expect(draft.scene.version).toBe(2);
+    expect(polls).toBe(2);
+  });
+
+  it('连续瞬时故障超过上限后提示无法连接', async () => {
+    mockFetch(async (_url, init) => {
+      if ((init?.method ?? 'GET') === 'POST') return accepted();
+      throw new TypeError('Failed to fetch');
+    });
+    await expect(readProblem(input())).rejects.toThrow('无法连接读题服务');
+  });
+
+  it('总预算耗尽给出读题超时提示', async () => {
+    mockFetch(async (_url, init) => ((init?.method ?? 'GET') === 'POST' ? accepted() : pending()));
+    await expect(readProblem(input({ timeoutMs: 20 }))).rejects.toThrow('读题超时');
   });
 });

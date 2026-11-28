@@ -27,6 +27,18 @@ function close3(actual:{x:number;y:number;z?:number},expected:{x:number;y:number
 }
 
 describe('三维运动求解',()=>{
+  it('二维场景下 null 占位不算三维分量，非零仍拒绝（DEF-024）',()=>{
+    const sc=baseScene('null 占位');sc.dimension='2d';
+    sc.bodies=[makeBall({x:0,y:0},1,2,0)];
+    sc.bodies[0].pos.z=null as any;sc.bodies[0].vel.z=null as any;
+    const f=makeField('uniform_magnetic',{x:0,y:0},{kind:'global'});
+    f.bx=null as any;f.by=null as any;f.gradient=null as any;f.bz=-0.5;
+    sc.fields=[f];
+    sc.asks=[makeAsk('at_time',{t:1})];
+    expect(ok(solve(sc))).toBeTruthy();
+    f.bx=0.1;
+    expect(solve(sc).ok).toBe(false);
+  });
   it('绕 +z 的螺旋线方向、半径、周期、螺距及动能正确',()=>{
     const sc=scene(),sol=ok(solve(sc)),period=2*Math.PI,s=sol.evalAt(Math.PI/2);
     close3(s,{x:3,y:-1,z:Math.PI/2});

@@ -85,7 +85,7 @@ export function fitPlaybackCamera(camera: Camera, points: Vec2[], layout: Window
           const w = xs[j] - xs[i];
           const h = ys[l] - ys[k];
           if (w <= 64 || h <= 64 || intersects(xs[i], ys[k], xs[j], ys[l])) continue;
-          const scale = Math.min(camera.scale, (w - 64) / Math.max(maxX - minX, 1), (h - 64) / Math.max(maxY - minY, 1));
+          const scale = Math.min(400, Math.max(0.02, Math.min((w - 64) / Math.max(maxX - minX, 1), (h - 64) / Math.max(maxY - minY, 1))));
           if (scale < bestScale || (scale === bestScale && w * h <= bestArea)) continue;
           bestScale = scale;
           bestArea = w * h;

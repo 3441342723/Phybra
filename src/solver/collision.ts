@@ -28,19 +28,21 @@ export const collisionTemplate: Template = {
   solve(scene: Scene){
     const bodies=scene.bodies;
     const settings=scene.collision??DEFAULT_COLLISION;
+    // 共享契约允许 afterCollision/collisionRadius 为 null（播放与示意设置，非题面测量值），回退默认值。
+    const afterCollision=settings.afterCollision??DEFAULT_COLLISION.afterCollision;
     const blockers: CheckIssue[]=[];
     const fail=(path:string,note:string)=>blockers.push(issue('constraint_conflict',path,note));
     if(scene.fields?.some(f=>f.enabled)||scene.links?.some(l=>l.bodyId!==null)||scene.supports.length||scene.contacts.length)
       blockers.push(issue('unsupported_combo','bodies','双球碰撞目前计算无外场、无支撑面、无绳杆的自由运动，忽略自转和切向摩擦。'));
     if(!finite(settings.restitution)||settings.restitution<0||settings.restitution>1) fail('collision.restitution','恢复系数 e 必须在 0 到 1 之间。');
-    if(!finite(settings.afterCollision)||settings.afterCollision<0) fail('collision.afterCollision','碰后播放时长必须是非负有限数。');
+    if(!finite(afterCollision)||afterCollision<0) fail('collision.afterCollision','碰后播放时长必须是非负有限数。');
     for(const b of bodies){
       const path='bodies.'+b.id;
-      const quantities={mass:b.mass,'pos.x':b.pos.x,'pos.y':b.pos.y,'vel.x':b.vel.x,'vel.y':b.vel.y,collisionRadius:b.collisionRadius===undefined?0.25:b.collisionRadius};
+      const quantities={mass:b.mass,'pos.x':b.pos.x,'pos.y':b.pos.y,'vel.x':b.vel.x,'vel.y':b.vel.y,collisionRadius:b.collisionRadius??0.25};
       for(const [key,value] of Object.entries(quantities)) if(!finite(value)) blockers.push(issue('missing_required',path+'.'+key,'请填写有限数值。'));
       if(finite(b.mass)&&b.mass<=0) fail(path+'.mass','质量必须为正。');
       if(finite(quantities.collisionRadius)&&quantities.collisionRadius<=0) fail(path+'.collisionRadius','碰撞半径必须为正。');
-      if(isCharged(b)) fail(path+'.charge','当前双球碰撞忽略电荷相互作用，请取消小球的「带电」选项。');
+      if(isCharged(b)&&bodies.filter(isCharged).length>1) fail(path+'.charge','两个带电小球之间的库仑力尚未纳入碰撞模型。');
       if(b.attach) fail(path+'.attach','碰撞小球不能依附于支撑面。');
     }
     if(bodies[0].id===bodies[1].id) fail('bodies','两个物体的 ID 不能相同。');
@@ -72,7 +74,7 @@ export const collisionTemplate: Template = {
     const requested=scene.asks.flatMap(ask=>[ask.t,ask.energyFrom?.kind==='time'?ask.energyFrom.t:0,ask.energyTo?.kind==='time'?ask.energyTo.t:0])
       .filter((t):t is number=>finite(t)&&t>=0);
     const stationary=v.every(a=>a.x===0&&a.y===0);
-    const tEnd=stationary?(tc??0):Math.max(tc===null?3:tc+settings.afterCollision!,...requested);
+    const tEnd=stationary?(tc??0):Math.max(tc===null?3:tc+afterCollision,...requested);
     const momentum=(velocities:Vec2[])=>velocities.reduce((total,a,i)=>({x:total.x+m[i]*a.x,y:total.y+m[i]*a.y}),{x:0,y:0});
     const pin=momentum(u),pout=momentum(v);
     if(![tEnd,tc??0,impulse,beforeK,afterK,pin.x,pin.y,pout.x,pout.y,...v.flatMap(a=>[a.x,a.y])].every(finite)){

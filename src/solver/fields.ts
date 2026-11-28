@@ -257,8 +257,53 @@ export const fieldTemplate: Template = {
       }
     }
     const available=(time:number)=>finite(time)&&time>=0&&(time<=tEnd+1e-10||continuous||stationary&&!protection);
+    // qE 与 mg 抵消等判定受浮点误差影响（~1e-15），用绝对容差而非严格等于 0。
+    const zero=(v:number)=>Math.abs(v)<=1e-9;
     for (const ask of scene.asks) {
-      if(ask.kind==='at_time') {
+      if(ask.kind==='motion_analysis') {
+        const w=qm*initialForce.bz,ax=initialForce.gx+qm*initialForce.ex,ay=initialForce.gy+qm*initialForce.ey;
+        const uniform=!link&&!usesVariable(active0);
+        const speed=norm(s0[2],s0[3]);
+        const type=stationary?'静止':!uniform?'场强或约束随运动变化':zero(w)?(zero(ax)&&zero(ay)?'匀速直线运动':'匀变速运动'):
+          zero(ax)&&zero(ay)?'匀速圆周运动（重力与电力的合力为零）':'电磁场中的回旋与漂移运动';
+        answers.push({id:ask.id,label:'初始场区内的运动性质',value:null,unit:'',text:type,note:finiteFields.length?'该结论仅适用于保持初始合场的区段，出场后需重新判断。':undefined});
+        if(uniform&&!zero(w)&&zero(ax)&&zero(ay)&&speed>0) {
+          out(ask.id+'.radius','轨道半径',speed/Math.abs(w),'m');out(ask.id+'.period','周期',2*Math.PI/Math.abs(w),'s');
+        }
+      } else if(ask.kind==='return_to_initial_x') {
+        const w=qm*initialForce.bz,ax=initialForce.gx+qm*initialForce.ex,ay=initialForce.gy+qm*initialForce.ey;
+        if(link||usesVariable(active0)||zero(w)||!zero(ax)||!zero(ay)||norm(s0[2],s0[3])===0){
+          out(ask.id,'首次返回初始竖直线',null,'s','此查询目前适用于电力和重力抵消的匀强磁场圆周运动。');
+          continue;
+        }
+        const phi=2*Math.atan2(-s0[2],s0[3]);
+        let angle=((Math.sign(w)*phi)%(2*Math.PI)+2*Math.PI)%(2*Math.PI);
+        if(angle<1e-12)angle=2*Math.PI;
+        const time=angle/Math.abs(w);
+        const flow=uniformFlow(s0,initialForce,m,q);
+        // 数值积分有步数上限（tEnd 可能远小于返回时刻）；改用解析圆弧采样验证
+        // 整段弧是否留在初始场区内，半空间多边形场在边界返回的情形由此成立。
+        let arcInside=true;
+        for(let i=0;i<=64&&arcInside;i++){
+          const p=flow(time*i/64);
+          for(const f of finiteFields)if(active0.has(f.id)&&!contains(f.shape,{x:p[0],y:p[1]})){arcInside=false;break;}
+        }
+        const tol=1e-6*Math.max(1,time);
+        const sameField=continuous||arcInside&&segments.filter(seg=>seg.start<time-tol).every(seg=>{
+          const f=sumFields(fields,seg.active,s0);return !usesVariable(seg.active)&&Math.abs(qm*f.bz-w)<=1e-9*Math.max(1,Math.abs(w))&&zero(f.gx+qm*f.ex)&&zero(f.gy+qm*f.ey);
+        });
+        if(!sameField)out(ask.id,'首次返回初始竖直线',null,'s','回到竖直线前可能已出场或超过已求解区间，不能沿用圆周公式。');
+        else {
+          const flow=uniformFlow(s0,initialForce,m,q),times=[0,time];
+          const theta0=Math.atan2(s0[3],s0[2]);
+          for(let k=-3;k<=3;k++){const t=(theta0+k*Math.PI)/w;if(t>0&&t<time)times.push(t);}
+          if(ask.y!==null&&times.some(t=>flow(t)[1]<ask.y!-1e-9)){
+            out(ask.id,'首次返回初始竖直线',null,'s','返回之前轨迹已进入给定地面以下；需要先处理落地，不能输出穿地后的返回高度。');continue;
+          }
+          const u=flow(time);out(ask.id,'首次返回初始竖直线的时间',time,'s');out(ask.id+'.dy','相对出发点的竖直位移',u[1]-s0[1],'m');
+          out(ask.id+'.y',ask.y===null?'返回时的 y 坐标':'返回时的离地高度',u[1]-(ask.y??0),'m');
+        }
+      } else if(ask.kind==='at_time') {
         if(available(ask.t!)) show(ask.id,'t='+fmt(ask.t)+' s · ',ask.t!);
         else out(ask.id,'指定时刻的状态',null,'','该时刻超出已求解范围。');
       } else if(ask.kind==='field_exit'||ask.kind==='field_entry') {

@@ -38,6 +38,12 @@ export function solve(input: Scene): SolveResult {
   const result = template.solve(scene);
   if (result.ok) {
     result.solution.sceneRev = input.rev;
+    for(const ask of scene.asks.filter(a=>a.kind==='custom')) {
+      const answer=result.solution.answers.find(a=>a.id===ask.id);
+      const note='此问题已保留，当前没有对应的专用求解；请查看相关阶段或补充建模。';
+      if(answer){answer.label=ask.question??'题目待求';answer.value=null;answer.note=note;}
+      else result.solution.answers.push({id:ask.id,label:ask.question??'题目待求',value:null,unit:'',note});
+    }
     if (!result.solution.energy) reportUnsupportedEnergyQueries(scene, result.solution);
     if (scene.bodies[0].kind !== 'ball') {
       for (const ask of scene.asks.filter(a => a.kind === 'field_exit'||a.kind === 'field_entry')) {
