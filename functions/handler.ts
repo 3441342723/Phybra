@@ -65,8 +65,27 @@ async function readJsonBody(request: Request): Promise<unknown> {
   if (!(request.headers.get('content-type') ?? '').toLowerCase().includes('application/json')) {
     throw new InterpretError('unsupported_media_type', 415);
   }
-  const bytes = await request.arrayBuffer();
-  if (bytes.byteLength > MAX_BODY_BYTES) throw new InterpretError('payload_too_large', 413);
+  const declaredLength = Number(request.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) throw new InterpretError('payload_too_large', 413);
+  const reader = request.body?.getReader();
+  if (!reader) throw new InterpretError('invalid_json', 400);
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > MAX_BODY_BYTES) {
+        await reader.cancel().catch(() => {});
+        throw new InterpretError('payload_too_large', 413);
+      }
+      chunks.push(next.value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
   try {
     return JSON.parse(new TextDecoder().decode(bytes));
   } catch {

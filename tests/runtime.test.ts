@@ -53,5 +53,13 @@ describe('runtime scene validation', () => {
   it('accepts both built-in demo drafts through the same boundary parser', () => {
     expect(parseSceneDraft(demoDraft('flat', '平抛')).source.demo).toBe(true);
     expect(parseSceneDraft(demoDraft('incline', '斜面')).unknown.length).toBeGreaterThan(0);
+    expect(parseSceneDraft(demoDraft('plates', '平行板电场')).scene.fields?.[0].plates?.voltage).toBe(12);
+    expect(parseSceneDraft(demoDraft('plates', '平行板电场')).scene.bodies[0].charge).toBe(1);
+    const incomplete = demoDraft('plates', '平行板电场');
+    incomplete.scene.fields![0].plates!.voltage = null;
+    incomplete.scene.fields![0].vector = { x: null, y: null } as any;
+    incomplete.unknown.push({ path: `fields.${incomplete.scene.fields![0].id}.plates.voltage`, label: '板间电压' });
+    // 缺少板间电压时，当前契约将平行板退化为普通矢量匀强场，避免求解器误用不完整的 plates 配置。
+    expect(parseSceneDraft(incomplete).scene.fields?.[0].plates).toBeUndefined();
   });
 });

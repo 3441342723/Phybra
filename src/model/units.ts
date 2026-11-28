@@ -16,6 +16,7 @@ export const UNITS: Record<UnitKind, Record<string, UnitDef>> = {
   gravity_gradient: { 's⁻²': { si: 1, label: 's⁻²' } },
   electric_gradient: { 'V/m²': { si: 1, label: 'V/m²' } },
   magnetic_gradient: { 'T/m': { si: 1, label: 'T/m' }, 'mT/m': { si: 0.001, label: 'mT/m' } },
+  stiffness: { 'N/m': { si: 1, label: 'N/m' } },
   none: { '': { si: 1, label: '' } },
 };
 

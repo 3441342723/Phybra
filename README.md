@@ -15,9 +15,9 @@
 - 运动轨迹、时间轴、曲线和公式推导。
 - 播放倍率可自行设置，默认 1×；倍率只影响播放，时间轴和答案仍显示真实物理时间。
 - 场景浏览器本地保存、JSON 导入导出。
-- AI 建模草稿的预览与应用入口。
+- AI 建模草稿的预览与应用入口；读题契约支持基础力学和带电小球/匀强电场/平行板/磁场的场景字段，数值缺失会保留为未知并交由本地求解器提示。
 
-AI 读题默认调用 Sites 同源函数 `POST /functions/v1/app/interpret`，由服务端调用 Qoder Cloud Agents；浏览器不接触任何云端凭据。未开启后端时该接口返回 `service_not_configured`，手动搭建与计算不受影响。设置 `VITE_AI_DEMO=1` 可强制回到内置演示草稿。
+AI 读题默认调用 Sites 同源函数 `POST /functions/v1/app/interpret`。配置服务端 Secret `QWEN_API_KEY` 时，Function 通过 Qwen 兼容接口生成草稿，并用私有 Storage 保存任务意图与结果，客户端以 `GET .../interpret?job=...` 续取；未配置时回退到 Cloud Agents（`QODER_PAT`）。浏览器不接触任何云端凭据。未开启后端时该接口返回 `service_not_configured`，手动搭建与计算不受影响。设置 `VITE_AI_DEMO=1` 可强制回到内置演示草稿。
 
 网页与读题服务共享小球、电荷、场和分阶段草稿格式；更新时应一起部署前端及整个 `functions/` 包。若发布后仍显示 `bodies.0.kind 不是支持的物体类型`，先用 Ctrl+F5 重新加载页面：旧版页面只认识物块及旧抛体，会拒绝合法的 `ball` 小球。新版请求和响应携带格式版本号，检测到不同版本时会明确提示刷新或同时更新两端。
 
@@ -51,26 +51,26 @@ npm run preview
 
 ## AI 读题服务
 
-默认端点是同源 `POST /functions/v1/app/interpret`，由 `functions/` 下的 Sites Edge Function 处理；服务端读取平台注入的 `QODER_PAT` 调用 Qoder Cloud Agents，密钥不进入源码、构建产物或浏览器。如需指向自建服务，在本地 `.env.local` 中配置：
+默认端点是同源 `POST /functions/v1/app/interpret`，由 `functions/` 下的 Sites Edge Function 处理。服务端优先读取平台 Secret `QWEN_API_KEY` 调用 Qwen 兼容接口；未配置时读取 `QODER_PAT` 调用 Qoder Cloud Agents。密钥不进入源码、构建产物或浏览器。如需指向自建服务，在本地 `.env.local` 中配置：
 
 ```dotenv
 VITE_AI_ENDPOINT=https://your-backend.example/api/interpret
 ```
 
-接口接受 JSON 格式的 POST 请求，字段为 `text`，以及可选的 `imageBase64`（标准 Base64 编码）和 `imageName`。成功响应为 JSON `SceneDraft`，字段为 `source`、`scene`、`known`、`assumed`、`unknown`、`uncertain` 和 `warnings`。其中 `scene` 使用 version 2；缺少的物理数值用 `null` 表示。草稿中的 `known`/`assumed` 项包含 `path`、`label`、`value`，并可附带 `quote`/`basis`；`unknown` 项包含 `path` 和 `label`。路径必须引用草稿中的场景对象或受支持的求解目标。题面文字上限 8000 字符；题图在服务端按文件头识别 PNG/JPEG/WebP/GIF，并拒绝与文件扩展名不一致的内容，解码后上限 600 KB（超出返回 413 `image_too_large`）；读题一次云端生成往返实测 25～100 秒，客户端超时 120 秒、服务端轮询预算 85 秒（Sites 网关约 100 秒会自行切断连接并返回 504，故预算必须更短）。HTTP 429 显示额度耗尽，504 显示读题超时，其他非成功状态显示服务不可用。
+接口接受 JSON 格式的 POST 请求，字段为 `text`，以及可选的 `imageBase64`（标准 Base64 编码）和 `imageName`。成功结果为 JSON `SceneDraft`，字段为 `source`、`scene`、`known`、`assumed`、`unknown`、`uncertain` 和 `warnings`。其中 `scene` 使用 version 2；缺少的物理数值用 `null` 表示。草稿中的 `known`/`assumed` 项包含 `path`、`label`、`value`，并可附带 `quote`/`basis`；`unknown` 项包含 `path` 和 `label`。路径必须引用草稿中的场景对象或受支持的求解目标。题面文字上限 8000 字符；题图在服务端按文件头识别 PNG/JPEG/WebP/GIF，并拒绝与文件扩展名不一致的内容，解码后上限 600 KB（超出返回 413 `image_too_large`）。POST 返回 `202` 和 `jobId` 后，客户端轮询同一路径的 `GET .../interpret?job=...`；Qwen 任务保存在私有 Storage，支持模型降级链、一次格式修正和阶段性超时重试。HTTP 429 显示额度耗尽，504 显示读题超时，其他非成功状态显示服务不可用。
 
 `GET /functions/v1/app` 保留为健康检查。本地可在安装 Deno 后用 `deno run --allow-net=127.0.0.1:8000 dev/function-local.ts` 起函数，配合 `pnpm run dev` 的同源代理联调；无 Deno 时用 `node --experimental-strip-types dev/function-fixture.ts` 跑注入假 Cloud Agents 客户端的无凭据检查。
 
 ### 在 Qoder Sites 上启用真实读题
 
 1. 在 Qoder 中打开本仓库，先在终端执行 `pnpm install`、`pnpm test`、`pnpm run typecheck` 和 `pnpm run build`。
-2. 在 Sites 项目的服务端 Secrets/Environment Variables 中新增 `QODER_PAT`。它必须是服务端 Secret，不能写入 `.env`、`VITE_` 变量、源码或前端构建配置。
+2. 在 Sites 项目的服务端 Secrets/Environment Variables 中新增 `QWEN_API_KEY` 以启用 Qwen；如需 Cloud Agents 回退，再配置 `QODER_PAT`。它们必须是服务端 Secret，不能写入 `.env`、`VITE_` 变量、源码或前端构建配置。
 3. 确认站点同时部署前端和 `functions/` 目录，并保留函数入口 `functions/index.ts`。前端默认请求同源 `POST /functions/v1/app/interpret`，不需要把 PAT 暴露给浏览器。
 4. 先发布预览，在预览域名访问 `/functions/v1/app?name=Physics`；返回 `{"ok":true,...}` 才继续做真实读题验证。若返回 `service_not_configured`，检查 Secret 名称、作用域和部署版本后重新发布。
 5. 在工作台打开“AI 读题”，确认状态显示“服务端读题”，提交一段文字题，再上传一张小于 600 KB 的 PNG/JPEG/WebP/GIF 题图。生成后先检查已知量、假设、缺项和警告，再点击“应用替换场景”；替换可以用撤销恢复。
-6. 在 Qoder 的函数日志中只核对请求计数、模型/会话 ID 和错误码，不记录题面、图片、PAT 或模型原始输出。用完预览后再按 Sites 的发布流程发布正式版本，并重复健康检查和文字/图片两种验证。
+6. 在 Qoder 的函数日志中只核对请求计数、任务/模型/会话 ID 和错误码，不记录题面、图片、API key 或模型原始输出。用完预览后再按 Sites 的发布流程发布正式版本，并重复健康检查、文字/图片、刷新续取和撤销验证。
 
-本地不调用云端时可执行 `pnpm run test:function` 做无凭据函数契约检查，或用 `VITE_AI_DEMO=1 pnpm run dev` 使用内置演示草稿。客户端图片上限为 4 MiB，服务端解码后上限为 600 KB；服务端额度、限流和公开访问策略仍由 Sites 项目设置负责。
+本地不调用云端时可执行 `pnpm run test:function` 做无凭据函数契约检查，或用 `VITE_AI_DEMO=1 pnpm run dev` 使用内置演示草稿。客户端与服务端当前统一按 600 KB 题图上限校验；Function 已有最小间隔、单 IP/全局每日额度门控（由 `RATE_MIN_INTERVAL_MS`、`RATE_DAILY_PER_IP`、`RATE_DAILY_GLOBAL` 配置），但默认是进程内内存计数，持久化额度数据库和公开访问策略仍待 P4/P6。
 
 ### 线上受控验证记录（2026-11-25）
 
@@ -84,11 +84,11 @@ VITE_AI_ENDPOINT=https://your-backend.example/api/interpret
 - **函数日志**：仅 `interpret_start`/`interpret_done`/`interpret_incomplete`，字段为模型 ID、会话 ID、轮询次数、耗时、事件类型计数、`hasImage`、`textChars` 计数与错误码/字段路径级原因；无 PAT、题面原文、题图 base64 或模型原始输出。
 - **错误流程（线上实测）**：空题面 → 400 `invalid_text`；700 KB 题图 → 413 `image_too_large`（面板提示「超过读题服务 600 KB 上限」）；非图片文件 → 415 `unsupported_image_type`；非法 JSON 请求体 → 400 `invalid_json`；上游超时 → 504（面板提示「读题超时：请精简题面或稍后重试」）。每次错误后原场景保留，手动搭建与本地求解仍可用（错误后重新求解仍得 t=3 s、s=9 m）。
 - **错误流程（本地 fixture 覆盖，线上不便强制造成）**：429/额度耗尽、非法 SceneDraft、非法模型 JSON、无模型回复超时、无可用模型、方法与路径错误。
-- **已知限制**：云端生成延迟波动大（实测 25～100 秒）。上游拥塞时会连续出现 504（函数日志可见 `span.model_request_start` 多次而 `sawAgentReply:false`），重试通常成功；这不是前端或函数缺陷，但意味着读题不是稳定实时的交互。站点仍为 private，公开访问控制、限流与额度（P4）未实现。
+- **已知限制**：云端生成延迟波动大（Qwen 任务通过私有 Storage 续取，Cloud Agents 为回退通道）。Function 已做最小间隔与每日额度门控，但默认内存计数会在重启或跨实例时丢失；持久化额度、匿名公开访问与并发保护仍待 P4/P6。
 
-客户端会对 AI 响应和导入场景执行运行时校验，包括字段类型、枚举、有限数字、唯一 ID、场景引用、参数绑定和草稿路径。结构错误会在进入预览前拒绝。物理条件缺失仍保留在场景草稿中，交由本地求解器报告并由用户补充。取消请求不会将迟到响应写入草稿；AI 只负责生成场景草稿，答案仍由本地确定性求解器计算。
+客户端会对 AI 响应和导入场景执行运行时校验，包括字段类型、枚举、有限数字、唯一 ID、场景引用、参数绑定和草稿路径；电荷、电场、场区边界和电磁待求量也必须通过同一契约。结构错误会在进入预览前拒绝。物理条件缺失仍保留在场景草稿中，交由本地求解器报告并由用户补充。取消请求不会将迟到响应写入草稿；AI 只负责生成场景草稿，答案仍由本地确定性求解器计算。
 
-所有 `VITE_` 变量都会进入浏览器构建，只能配置公开服务地址；AI 服务密钥应保存在后端。公开上线前需实现服务端访问控制、限流与调用额度控制。
+所有 `VITE_` 变量都会进入浏览器构建，只能配置公开服务地址；AI 服务密钥应保存在后端。公开上线前需完成持久化额度、并发保护和访问控制，并按 P5/P6 复验。
 
 ## 项目结构
 

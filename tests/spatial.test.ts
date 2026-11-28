@@ -27,6 +27,19 @@ function close3(actual:{x:number;y:number;z?:number},expected:{x:number;y:number
 }
 
 describe('三维运动求解',()=>{
+  it('三维纯重力运动无需质量即可求状态，能量仍提示需要质量',()=>{
+    const sc=baseScene('三维自由落体');sc.dimension='3d';
+    sc.bodies=[makeBall({x:0,y:45},0,0,0)];
+    sc.bodies[0].mass=null;
+    sc.bodies[0].vel={x:0,y:0,z:0};
+    const g=makeField('uniform_gravity',{x:0,y:0},{kind:'global'});g.vector={x:0,y:-10,z:0};
+    sc.fields=[g];sc.fieldPlayback={duration:3,exit:'continue',fieldId:null,afterExit:0};
+    const ask=makeAsk('at_time',{t:3});sc.asks=[ask];
+    const sol=ok(solve(sc));
+    expect(sol.evalAt(3)).toMatchObject({y:0,vy:-30,ay:-10});
+    expect(sol.energy?.status).toBe('mass_required');
+  });
+
   it('二维场景下 null 占位不算三维分量，非零仍拒绝（DEF-024）',()=>{
     const sc=baseScene('null 占位');sc.dimension='2d';
     sc.bodies=[makeBall({x:0,y:0},1,2,0)];

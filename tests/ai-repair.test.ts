@@ -115,9 +115,8 @@ describe('无效 AI 草稿的受控恢复', () => {
     const cloud = createVerificationCloud(draft);
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const { jobId } = await startInterpret(cloud, { text: '原题隐私文字' });
-    const first = await interpretResult(cloud, jobId);
-    expect(first.status).toBe(200);
-    expect((first.body as any).warnings.some((w: string) => w.includes('无法定位'))).toBe(true);
+    await interpretResult(cloud, jobId);
+    await expect(interpretResult(cloud, jobId)).rejects.toMatchObject({ code: 'ai_draft_invalid', status: 502 });
     const text = log.mock.calls.map(call => call.join(' ')).join('\n');
     expect(text).not.toContain(marker); expect(text).not.toContain('原题隐私文字');
   });

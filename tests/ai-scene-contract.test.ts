@@ -132,6 +132,9 @@ describe('AI 场景契约与手动编辑器一致',()=>{
   it('提示词要求圆周用 circular+radius+omega、忽略重力写 0（DEF-045）',()=>{
     for(const term of ['匀速圆周运动用 kind=circular 并写 radius 与 omega','忽略重力时写 scene.gravity=0'])expect(SYSTEM_PROMPT).toContain(term);
   });
+  it('提示词明确纯重力运动可省略质量，能量/带电结果仍需质量（DEF-048）',()=>{
+    for(const term of ['纯重力运动学且质量不影响所求时','不列为待补条件','能量/功、碰撞结果或带电轨迹确实依赖质量'])expect(SYSTEM_PROMPT).toContain(term);
+  });
   it('提示词要求斜面顶端 attach.s=length（DEF-044）',()=>{
     expect(SYSTEM_PROMPT).toContain('物块从斜面顶端释放时 attach.s 写 length');
   });
@@ -197,9 +200,10 @@ describe('AI 场景契约与手动编辑器一致',()=>{
   it('提示词要求半空间多边形覆盖轨迹尺度或改用 global 场（DEF-034）',()=>{
     for(const term of ['范围必须覆盖预期轨迹的数倍尺度','禁止用百米量级多边形近似半空间'])expect(SYSTEM_PROMPT).toContain(term);
   });
-  it('unknown 中派生量占位路径剔除并明示，known 无效路径仍拒绝（DEF-033）',()=>{
+  it('unknown/known 无效路径在兼容模式剔除并明示，服务端严格模式拒绝（DEF-033）',()=>{
     const draft=collisionFieldDraft() as any;
     draft.unknown.push({path:'bodies.A.vel.x_after',label:'碰后速度'});
+    const strictDraft = structuredClone(draft);
     const out=parseSceneDraft(draft) as any;
     expect(out.unknown.some((u:any)=>u.path==='bodies.A.vel.x_after')).toBe(false);
     expect(out.warnings.some((w:string)=>w.includes('待求标记'))).toBe(true);
@@ -207,6 +211,20 @@ describe('AI 场景契约与手动编辑器一致',()=>{
     const out2=parseSceneDraft(draft) as any;
     expect(out2.known.some((k:any)=>k.path==='bodies.A.vel.x_after')).toBe(false);
     expect(out2.warnings.some((w:string)=>w.includes('无法定位的已知'))).toBe(true);
+    expect(()=>validateSceneDraft(strictDraft, { strictReferences: true })).toThrow(/draft 路径不存在/);
+  });
+  it('不存在的 asks.<kind> 不应被伪造为有效溯源路径', () => {
+    const draft = collisionFieldDraft() as any;
+    draft.known.push({ path: 'asks.apex', label: '不存在的最高点问题', value: 'x' });
+    expect(() => validateSceneDraft(draft, { strictReferences: true })).toThrow(/draft 路径不存在/);
+  });
+  it('严格模式拒绝路径形态的无效 uncertain 条目，但保留自然语言说明', () => {
+    const draft = collisionFieldDraft() as any;
+    draft.uncertain = ['bodies.A.vel.x_after'];
+    expect(() => validateSceneDraft(draft, { strictReferences: true })).toThrow(/draft 路径不存在/);
+    const prose = collisionFieldDraft() as any;
+    prose.uncertain = ['无法确认题图中的边界是否足够大'];
+    expect(() => validateSceneDraft(prose, { strictReferences: true })).not.toThrow();
   });
   it('阶段内 ask/场路径漏写 stages 前缀时自动定位并重写（DEF-031）',()=>{
     const draft=collisionFieldDraft() as any;
@@ -268,6 +286,55 @@ describe('AI 场景契约与手动编辑器一致',()=>{
     const scene=EXAMPLES[0].build();scene.asks.push(makeAsk('custom',{question:'第九次经过某点时的条件？'}));
     expect(parseScene(scene).asks.at(-1)?.question).toBe('第九次经过某点时的条件？');
     const sol=ok(solve(scene));const a=answer(sol,scene.asks.at(-1)!.id);expect(a.value).toBeNull();expect(a.label).toContain('第九次');expect(a.note).toContain('没有对应');
+  });
+  it('场区进出场已覆盖的 custom 待求项改为引用结构化结果',()=>{
+    const scene=ELECTROMAGNETIC_EXAMPLES.find(example=>example.id==='electric-field')!.build();
+    const ask=makeAsk('custom',{question:'出场时的竖直位移和速度方向？'});
+    scene.asks.push(ask);
+    const sol=ok(solve(scene));
+    const a=answer(sol,ask.id);
+    expect(a.value).toBeNull();
+    expect(a.note).toContain('场区进出场结果覆盖');
+  });
+  it('F3：出场时间 custom 直接引用 field_exit 结果',()=>{
+    const scene=ELECTROMAGNETIC_EXAMPLES.find(example=>example.id==='electric-field')!.build();
+    const ask=makeAsk('custom',{question:'出场时间'});
+    scene.asks.push(ask);
+    const a=answer(ok(solve(scene)),ask.id);
+    expect(a.note).toContain('场区进出场结果覆盖');
+  });
+  it('F3：离开电场时的竖直位移 custom 直接引用 field_exit 结果',()=>{
+    const scene=ELECTROMAGNETIC_EXAMPLES.find(example=>example.id==='electric-field')!.build();
+    const ask=makeAsk('custom',{question:'离开电场时的竖直位移'});
+    scene.asks.push(ask);
+    const a=answer(ok(solve(scene)),ask.id);
+    expect(a.note).toContain('场区进出场结果覆盖');
+  });
+  it('F3：出场后继续上升到最高点的速度保留为未专用求解',()=>{
+    const scene=ELECTROMAGNETIC_EXAMPLES.find(example=>example.id==='electric-field')!.build();
+    const ask=makeAsk('custom',{question:'出场后继续上升到最高点的速度'});
+    scene.asks.push(ask);
+    const a=answer(ok(solve(scene)),ask.id);
+    expect(a.note).toContain('没有对应的专用求解');
+    expect(a.note).not.toContain('场区进出场结果覆盖');
+  });
+  it('F3：场区内速度不应被误判为出场结果',()=>{
+    const scene=ELECTROMAGNETIC_EXAMPLES.find(example=>example.id==='electric-field')!.build();
+    const ask=makeAsk('custom',{question:'场区内速度随时间的变化'});
+    scene.asks.push(ask);
+    const a=answer(ok(solve(scene)),ask.id);
+    expect(a.note).toContain('没有对应的专用求解');
+    expect(a.note).not.toContain('场区进出场结果覆盖');
+  });
+  it('F3：只有 field_entry 时，“出场时间”不能被误说成已有结果',()=>{
+    const scene=ELECTROMAGNETIC_EXAMPLES.find(example=>example.id==='electric-field')!.build();
+    const entry=scene.asks.find(a=>a.kind==='field_exit')!;
+    entry.kind='field_entry';
+    const ask=makeAsk('custom',{question:'出场时间'});
+    scene.asks.push(ask);
+    const a=answer(ok(solve(scene)),ask.id);
+    expect(a.note).toContain('没有对应的专用求解');
+    expect(a.note).not.toContain('场区进出场结果覆盖');
   });
   it('提示词采用新格式、分阶段传值与题意冲突检查，不再宣称没有场字段',()=>{
     for(const term of ['charge','uniform_electric','uniform_magnetic','motion_analysis','return_to_initial_x','velocityFrom','0.0001','A 会反弹'])expect(SYSTEM_PROMPT).toContain(term);

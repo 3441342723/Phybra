@@ -31,7 +31,7 @@
 |---|---|---|---|---|
 | P1 物理内核 | 统一模型、受支持题型、共享求解结果 | A：物理内核 | 无 | 代码已实现，待 P5 验收 |
 | P2 编辑与联动 | 可编辑场景、参数同步、桌面及窄屏交互 | B：前端交互 | P1 数据契约 | 实现完成，本地回归通过，待 Q 独立验收（见 5.5） |
-| P3 真实 AI 建模 | 文字/图片 → 校验后的场景草稿 | C：AI 集成，D 协作 | P1 数据契约；先过 P3.1 平台验证 | 实现完成，2026-11-25 Sites 线上受控验证通过（private 站点）；延迟波动与上游 504 为已知限制 |
+| P3 真实 AI 建模 | 文字/图片 → 校验后的场景草稿 | C：AI 集成，D 协作 | P1 数据契约；先过 P3.1 平台验证 | 实现完成；远程基线为 `f4d6298`，Qwen Storage 异步任务、Cloud Agents 回退和限流门控均已接入，站点仍为 private |
 | P4 公开调用保护 | 服务端密钥、访问控制、限流与额度 | D：平台与发布 | P3.1、P3.3 | 未实现 |
 | P5 集成验收 | 自动检查、人工基准题、浏览器流程与 BUG 闭环 | Q：测试验收，各模块协作 | BUG 检查立即开始；最终依赖 P2～P4 | P2 本地回归通过，完整验收与独立复验待执行 |
 | P6 发布交付 | Sites 发布、匿名访问、线上复验 | D：平台与发布，Q 协作 | P5 全部通过 | 未完成，已有 private 站点描述与预览发布记录，公开访问和匿名复验待完成 |
@@ -69,11 +69,11 @@
 **主责**：C；D 负责平台验证与运行环境。**交付物**：可实际调用的文字/图片读题链路，而非演示数据。
 **负责文件**：`src/ai/client.ts`、`src/ai/demo.ts`、`src/ui/AiPanel.tsx`；服务端目录以 P3.1 验证后的 Sites 原生项目结构为准。
 
-- [x] **P3.1 验证平台能力**：2026-11-25 在已发布站点 `https://physics-workbench-0nigdkgdgmj.qoder.zone`（private）完成受控线上验证：健康检查 `ok:true`；文字题与图片题各返回合法 `SceneDraft` 并可应用后本地求解（文字题 t=3 s、s=9 m；图片题 v=5.32 m/s，取标注 30° 而非按 54° 图形反推）；生成/失败/取消均不改动原场景，应用需用户确认且一次撤销逐字节还原；浏览器仅同源请求，`dist/`、`src/`、`VITE_` 与函数日志均无凭据。已知限制：云端延迟 25～100 s，上游拥塞时出现 504，需重试；服务端轮询预算 85 s 以避开 Sites 网关约 100 s 的切断。证据：`README.md` 的「线上受控验证记录」、`functions/interpret.ts`、`src/ai/client.ts`。此项不等于 P6 公开发布。
-- [x] **P3.2 演示与客户端基础**：已有 `VITE_AI_ENDPOINT` 请求入口、文字/图片上传、客户端 4 MiB 检查、内置演示草稿、已知量/依据/假设/缺项展示、取消及可撤销的场景替换。证据：`src/ai/client.ts`、`demo.ts`、`src/ui/AiPanel.tsx`。
-- [x] **P3.3 确认服务契约**：请求字段为 `text`、可选 `imageBase64`/`imageName`，响应沿用 `SceneDraft`；缺失量使用 `null`，已知量/假设/缺项/不确定项分别记录依据，非法响应、超限、额度耗尽和超时均映射为稳定错误码。证据：`functions/interpret.ts`、`functions/draft-schema.ts`、`src/ai/client.ts`、`README.md`。
-- [x] **P3.4 实现真实读题服务**：`functions/` 下的 Sites Function 在服务端读取 `QODER_PAT`，调用 Cloud Agents 创建/复用 Agent、Environment 和 Session，发送文字或题图并轮询结构化草稿；提示词禁止按图形比例猜数值，并要求保留依据、假设、缺项及不确定条件。证据：`functions/handler.ts`、`functions/interpret.ts`、`functions/cloud-agents.mjs`。
-- [x] **P3.5 校验与联调**：服务端和前端均校验完整 `SceneDraft`、字段类型、唯一 ID、引用、绑定和草稿路径；图片服务端按文件头识别并拒绝与扩展名不一致的内容。服务端 Fixture 33 项覆盖文字、图片、事件分页、跨消息流式分片、非法图片/JSON、缺字段、错误路径、超限、无模型、超时、日志安全、方法和路径错误，全部通过。非法响应不会进入预览或覆盖现有场景，合法草稿需用户确认后替换并可撤销（2026-11-25 线上逐字节复核）。证据：`functions/draft-schema.ts`、`functions/interpret.ts`、`src/model/runtime.ts`、`dev/function-fixture.ts`、`tests/ai-client.test.ts`、`pnpm run test:function`。
+- [x] **P3.1 验证平台能力**：已在 private Sites 站点完成健康检查、文字题和图片题的受控验证；Qwen 通道现通过 Storage 任务和 `jobId` 续取结果，Cloud Agents 作为未配置 Qwen Secret 时的回退通道。两种通道都保持同源请求、应用前确认、可撤销替换和日志脱敏；此项不等于 P6 公开发布。
+- [x] **P3.2 演示与客户端基础**：已有 `VITE_AI_ENDPOINT` 请求入口、文字/图片上传、客户端与服务端 600 KB 题图检查、内置演示草稿、已知量/依据/假设/缺项展示、取消及可撤销的场景替换。证据：`src/ai/client.ts`、`demo.ts`、`src/ui/AiPanel.tsx`。
+- [x] **P3.3 确认服务契约**：请求字段为 `text`、可选 `imageBase64`/`imageName`，响应沿用 `SceneDraft`；缺失量使用 `null`，已知量/假设/缺项/不确定项分别记录依据；基础力学与电荷/电场/磁场草稿字段（`ball.charge`、`fields`、平行板、场区待求量）由前后端和运行时统一校验，非法响应、超限、额度耗尽和超时均映射为稳定错误码。证据：`functions/interpret.ts`、`functions/draft-schema.ts`、`src/model/runtime.ts`、`src/ai/client.ts`、`README.md`。
+- [x] **P3.4 实现真实读题服务**：`functions/` 下的 Sites Function 优先读取 `QWEN_API_KEY`，把文字/题图写入私有 Storage 任务并通过 Qwen 模型降级链生成；未配置时读取 `QODER_PAT`，调用 Cloud Agents 创建/复用 Agent、Environment 和 Session。两条路径共享提示词和 `SceneDraft` 契约。证据：`functions/handler.ts`、`functions/qwen.ts`、`functions/storage-adapter.ts`、`functions/interpret.ts`。
+- [x] **P3.5 校验与联调**：服务端和前端均校验完整 `SceneDraft`、字段类型、唯一 ID、引用、绑定和草稿路径；图片服务端按文件头识别并拒绝与文件扩展名不一致的内容。Fixture、Vitest、类型检查和构建覆盖 Qwen Storage 任务、Cloud Agents 事件分页、格式修正、重试、非法图片/JSON、缺字段、路径警告、超限、无模型、超时、日志安全、方法和路径错误。非法响应不会进入预览或覆盖现有场景，合法草稿需用户确认后替换并可撤销。证据：`functions/draft-schema.ts`、`functions/qwen.ts`、`functions/interpret.ts`、`src/model/runtime.ts`、`dev/function-fixture.ts`、`tests/ai-client.test.ts`、`pnpm run test:function`。
 
 **验收门槛**：真实文字/图片样例均能生成可编辑草稿；与手动建立的等价模型求解一致；取消不覆盖原场景，替换可撤销；通过 P5.4。
 
@@ -83,8 +83,8 @@
 **负责范围**：Sites 服务端访问策略、Secret、额度数据库、限流及诊断；依 P3.1 确认实际能力，不把前端提示当作服务端控制。
 
 - [ ] **P4.1 密钥与访问控制**：AI 服务凭据仅配置在服务端；前端 `VITE_` 变量只保存公开地址，构建产物及浏览器请求不得出现服务密钥；为匿名公开调用设置服务端访问策略。站点保持 private 至 P4/P5 验证完成，P6 再公开且需站长单独授权；**匿名访客路径的验收项待公开后复验**，private 阶段仅能验证限流逻辑本身（用低阈值 env 覆盖触发），不得提前勾选。
-- [ ] **P4.2 输入与频率限制**：服务端校验文字/图片输入，限制请求体与解码后的图片大小（图片上限与客户端 4 MiB 一致），实现调用频率限制；不能仅依赖浏览器检查。
-- [ ] **P4.3 额度记录与拒绝策略**：使用 Sites 数据库记录调用额度，落实每日总量与并发计数规则；额度耗尽明确拒绝继续读题，并与客户端错误提示保持一致，不影响手动计算。
+- [ ] **P4.2 输入与频率限制**：已加入 `functions/rate-limit.ts` 的最小间隔、单 IP/全局每日额度门控和 429 映射，Fixture 已覆盖；仍需将默认 MemoryQuotaStore 替换为可持久化/跨实例的一致性实现，并完成公开环境复验。
+- [ ] **P4.3 额度记录与拒绝策略**：Function 已能按环境变量配置内存额度并拒绝超额请求；Sites 持久化数据库、并发计数、跨实例一致性和每日结算仍未实现。
 - [ ] **P4.4 可观测与故障流程**：可通过平台 Analytics 和服务日志查看调用量、失败与额度情况；验证限流、超时和服务失败的用户提示及恢复流程，日志不泄露密钥。
 
 **验收门槛**：通过 P5.5 故障与保护检查；没有服务端限额和密钥检查证据，不进入公开发布。
@@ -300,6 +300,17 @@
 - **DEF-037（缩放丢场景）**：用户反馈每次缩放找不到图像。根因：缩放下限 6 px/m 无法容纳千米级场景（R≈4285 m），且 apply/load 后不重新取景、播放取景只允许放大不允许缩小。修复：zoomAt 下限 0.02 px/m；画布新增“适应场景”按钮（按物体/场区/支撑/绳杆包围盒居中取景）；store 新增 fitSeq，apply/load 递增触发 Canvas 自动取景；fitPlaybackCamera 允许缩小到 0.02。回归项：fitSeq 递增、千米尺度播放取景 scale<1。全套 466 项、typecheck、build 通过；动作 `7ef1644f-a0e7-47d2-a41f-0ac29a1b3918` 发布验证通过。浏览器实测：载入千米级本地示例后自动取景两球在视野内；滚轮连续缩小 8 档两球仍可见；适应按钮一键收回。
 - **DEF-038（“读题还是不可用”体验根因，11-28 晚）**：①重提同题会立即复用持久化的草稿类失败结果（秒报错），用户感知“怎么试都坏”→start() 对 `ai_draft_invalid/ai_draft_unparseable/ai_timeout` 的持久化失败在重提时重置意图与结果并重跑（凭据/限流类失败保留）；②降级链原以易挂起的 plus 为首，每次先白等 45 s→链序改为 flash→plus→max。回归项：重提重置重试、链序断言。全套 467 项、typecheck、build 通过；动作 `2a076966-40c2-42f7-8fb8-0b48c28470a4` 发布验证通过。浏览器实测：不点“重新生成”、直接重提原题约 36 s 出草稿，应用求解碰后 2.14/7.14 m/s、动量/动能守恒，撤销还原。若用户 Edge 仍异常，先 Ctrl+F5 排除旧 bundle 缓存。
 - **DEF-039（平行板缺电压，11-28 晚测试）**：新指纹读题草稿启用 plates 模式但 voltage=null（E 已由 vector 给出），求解器拒绝“平行板需要有效电压”。契约归一：plates.voltage 缺省/null 时删除 plates 退化为矢量匀强场并加警告；提示词补充“给 E 时 plates 置 null”。回归项覆盖。全套 468 项、typecheck、build 通过；动作 `8af7ba5d-26dc-4d25-bb3e-523413619dca` 发布验证通过。浏览器续取草稿应用求解：t=0.2 s、Δx=0.8 m、Δy=-0.1 m、出场 (0.8, -0.1)（模型以入射点为原点）、vx=4、vy=-1、速率 4.12 m/s、tanθ=0.25，三问与手算一致；撤销还原。另观察到 AI 窗口曾在修正完成前后自行关闭导致草稿丢失（关闭即清草稿为既有设计），待查窗口管理触发源。
-- **DEF-040..044 + 三道简单题验证（11-28 晚）**：自拟平抛/磁场圆周/光滑斜面三题逐题读题→应用→求解→手算核对。P1 平抛（h=5, v0=10）：t=1 s、x=10 m、14.1 m/s、tanθ=1 ✓；P2 磁场圆周（m=2e-3, q=1e-3, v=5, B=1, 忽略重力）：匀速圆周、R=10 m、T=12.6 s≈4π ✓；P3 斜面（30°, L=10, 光滑）：|a|=5 m/s²、t=2 s、v=10 m/s ✓。过程中修复：stages:null 视同缺省（040）；附着物体 pos:null 由支撑面 a+s 导出（041）；known/assumed 的 quote/basis 允许 null、无法定位的溯源条目剔除并明示警告（042，原型路径仍被 resolveField 拦截不污染）；支撑面题型全局重力场迁移为 scene.gravity（043）；提示词补充斜面顶端 attach.s=length、物块必写 contacts（044）。全套 472 项、typecheck、build 通过；动作 `bf46ac7c-e1ba-4fb4-a76e-32a61a5b2404` 发布验证通过。期间内置浏览器一次导航失败（chrome-error）经重新导航恢复，属浏览器瞬时网络问题。
+- **DEF-040..044 + 三道简单题验证（11-28 晚）**：自拟平抛/磁场圆周/光滑斜面三题逐题读题→应用→求解→手算核对。P1 平抛（h=5, v0=10）：t=1 s、x=10 m、14.1 m/s、tanθ=1 ✓；P2 磁场圆周（m=2e-3, q=1e-3, v=5, B=1, 忽略重力）：匀速圆周、R=10 m、T=12.6 s≈4π ✓；P3 斜面（30°, L=10, 光滑）：|a|=5 m/s²、t=2 s、v=10 m/s ✓。过程中修复：stages:null 视同缺省（040）；附着物体 pos:null 由支撑面 a+s 导出（041）；本地兼容解析对无法定位的溯源条目剔除并明示、AI 服务严格模式拒绝（042，`asks.<kind>` 仅允许真实存在的 ask）；支撑面题型全局重力场迁移为 scene.gravity（043）；提示词补充斜面顶端 attach.s=length、物块必写 contacts（044）。全套 475 项、typecheck、build 通过；Function fixture 通过。期间内置浏览器一次导航失败（chrome-error）经重新导航恢复，属浏览器瞬时网络问题。
 - **DEF-045/046 + 圆周题全链路确认（11-28 晚，换密钥后）**：用户换 Qwen key 后确认全链路：Secret synced、探针 4.4 s、电场偏转题三问通过；再跑匀速圆周题（R=2, v=4）：ω=2 rad/s、T=3.14 s、a=8 m/s²、v=4 m/s，质量未知时向心力明示不确定 ✓。修复：提示词要求圆周用 circular+radius+omega（ω=v/R 算出）、绳杆仅连接体、忽略重力写 scene.gravity=0（045）；校验器允许纯圆周场景 g=0（其余非小球题型仍要求正重力）（046）。全套 474 项、typecheck、build 通过；动作 `2a6f5f7c-0cb7-495f-8915-59c74a90e5e4` 发布验证通过。期间网关边缘节点多次瞬时 ERR_CONNECTION_CLOSED（curl HTTP/1.1 始终 0.1 s 通），重试/重导航即恢复，属平台边缘瞬时故障。
 - **DEF-047/048 + 用户斜面摩擦题 503 根因（11-28 晚）**：用户换 key 后自拟斜面题仍报 503 service_unavailable——根因是重提同题复用了**换密钥前的失败缓存**（DEF-038 重置白名单未含 service_unavailable）→改为重提重置任何 failed 缓存（047 前置）。该题草稿另有两处缺省：附着物体 vel:{x:null,y:null}（静止释放）归 0；只给静摩擦时 mu_k:null 取 mu_s 并 warnings 明示近似（047/048）。全套 475 项、typecheck、build 通过；动作 `d0231ed6-fe40-4d47-be9a-51b67bf57f80` 发布验证通过。用户原题线上求解：题未给 g 模型取 9.8 → a≈1.51 m/s²、t≈2.58 s、v≈3.88 m/s，与手算自洽（g=10 口径 1.54/2.55/3.92）。另：AI 浮窗体在生成期间数次自发卸载（只剩标题栏），重开后续取正常；触发源待查（已记录）。
+
+### 5.13 P3 真实读题报告 F1–F4 修复（2026-11-28）
+
+关联 `docs/P3-QODERCN-真实读题服务测试结果.md` §6；以下是当前本地工作区修复，不表示已重新发布或完成 Qoder Sites 线上复验。
+
+- **F1**：纯重力二维/三维运动不再要求质量才能求运动学量；涉及能量/功时仍明确提示需要质量，电磁/带电动力学仍要求有效质量。提示词区分“纯重力且质量无关”与“所求依赖质量”的 `unknown` 标注。
+- **F2**：仅问 `friction_state` 时支持未知支撑长度，求解不采用示意默认长度；运动、端点和能量问题仍要求长度。
+- **F3**：提示词优先将场区进出场待求量映射到结构化 `field_entry/field_exit`；兼容重复 custom 时，按进场/出场方向指向对应结构化结果，并排除场外后续过程。
+- **F4**：custom-only 不支持场景跳过无关的重力正值和支撑长度阻塞；新增 `stiffness` 单位类型及 `N/m` 映射，明确它只保留弹簧参数单位，不代表支持弹簧求解。
+- **草稿引用加固**：服务端解释路径启用严格引用校验，无效 known/assumed/unknown 路径和路径形态的 uncertain 条目拒绝返回。
+- **本地验证**：`pnpm test` 27 文件 / 492 项、`pnpm run typecheck`、`pnpm run build`、`pnpm run test:function`、`git diff --check` 均通过；构建仅有主 JS chunk 体积警告。当前尚未部署，线上需按原报告题面重新验证 F1–F4。

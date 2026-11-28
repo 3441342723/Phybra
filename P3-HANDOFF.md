@@ -2,14 +2,14 @@
 
 > 本文件只交接 P3 的实现、线上验证和遗留事项，并说明进入 P4/P5/P6 前需要完成的工作。它不是整个项目的通用交接文档。
 
-更新时间：2026-11-25（Asia/Shanghai）
+更新时间：2026-11-28（Asia/Shanghai）
 
 ## 当前版本
 
-- Git 提交：`9f0d796`（`feat(ai): complete P3 scene interpretation flow`）
+- Git 基线：修复前为 `f4d6298`（已合入 P4 限流门控）；本次交接对应远程 `origin/main` 上的最新 P3 修复提交。
 - 分支：`main`
 - 远程：`origin/main`，已与本地同步
-- 工作区：干净
+- 工作区：保留本地未提交修改；更新前的完整修改另存于 `stash@{0}`
 - 站点：`https://physics-workbench-0nigdkgdgmj.qoder.zone`
 - 站点当前访问范围：private；公开访问尚未完成
 
@@ -20,17 +20,20 @@ P3 的文字/图片读题链路已经实现并验证：
 - P3.1：Qoder Sites 预览环境健康检查、文字题和图片题受控验证完成。
 - P3.2：客户端输入、图片上传、取消、草稿审阅和可撤销替换完成。
 - P3.3：请求字段、`SceneDraft` 响应、缺失值、依据、假设、缺项和错误码契约已确定。
-- P3.4：Sites Function 服务端调用 Cloud Agents，凭据只从服务端 Secret `QODER_PAT` 读取。
+- P3.4：Sites Function 优先走服务端 Secret `QWEN_API_KEY` 对应的 Qwen 兼容接口；未配置时保留 Cloud Agents 的 `QODER_PAT` 回退通道。两种凭据都只在服务端读取。
 - P3.5：前后端结构校验、事件分页、流式分片、非法草稿、非法图片、超时和日志安全检查完成。
+- P3.6：Qwen 读题采用 Storage 持久化任务：POST 受理并写入意图，GET 按 job 续取结果；支持模型降级链、一次格式修正、超时重试和跨冷启动续取。
+- P3.7：已关闭真实读题复验发现的 F1–F4：纯重力运动学不再因缺质量阻塞（二维/三维均覆盖）；只问摩擦状态时不再要求斜面长度；`field_entry/field_exit` 已覆盖的量不再重复生成 `custom` 待求项，按进场/出场方向匹配结构化结果，“出场时间”“离开电场时位移”等措辞与“出场后继续上升到最高点”“场区内速度”等非出场问题均有回归；不支持的弹簧草稿允许 `g=0` 保留，并新增 `stiffness`/`N/m` 量纲，单物块 custom-only 弹簧题不再输出等效普通运动答案。严格 AI 服务路径引用校验保持开启。
+- 电荷/电磁草稿契约已与运行时同步：支持 `ball.charge`、`fields`、平行板电压和 `field_entry/field_exit/work_between` 等字段；电磁场的物理求解仍由本地确定性求解器负责。
 
 当前本地验证结果：
 
 ```text
-pnpm install --frozen-lockfile   通过
-pnpm test                        18 个测试文件 / 233 项通过
+pnpm install --frozen-lockfile   通过（依赖已就绪）
+pnpm test                        27 个测试文件 / 492 项通过
 pnpm run typecheck               通过
 pnpm run build                   通过（仅有大包体积警告）
-pnpm run test:function           33 项全部通过
+pnpm run test:function           已通过（包含 Qwen、Storage、草稿修正与日志安全检查）
 git diff --check                 通过
 ```
 
@@ -44,18 +47,20 @@ git diff --check                 通过
 
 ## 已知限制
 
-- Cloud Agents 生成延迟约 25～100 秒，上游拥塞时可能返回 504，需要重试。
-- 服务端轮询预算为 85 秒，以避开 Sites 网关约 100 秒的连接切断。
-- 客户端图片上限为 4 MiB，服务端解码后上限为 600 KB。
-- 最新提交包含图片文件头与扩展名一致性校验；Qoder Sites 需要重新部署 `9f0d796` 后线上才包含该修复。
-- P4 的公开访问控制、频率限制、额度数据库和并发计数尚未实现。
+- Qwen 读题按 Storage 任务异步续取，单次轮询有时仍会超时；服务端会按阶段重试，达到上限后返回 `ai_timeout`。未配置 `QWEN_API_KEY` 时才走 Cloud Agents 路径。
+- 电磁读题要求题面给出场强/电压、区域和电荷等关键数值；缺失值会保留为 `null` 并由本地求解器报告，不能依赖图形比例补数。
+- 本次新增的电荷/电磁读题契约已通过本地模拟服务端和运行时测试，但尚未在 Qoder Sites 上使用真实模型重新联调；发布后应先做文字电磁题，再验证应用、求解和撤销。
+- Qwen 任务结果写入私有 Storage，浏览器关闭或 Edge 冷启动后仍可用同一 `jobId` 续取；Cloud Agents 回退路径继续使用会话事件分页。
+- 客户端与服务端当前统一按 600 KB 题图上限校验。
+- 本次本地修补包含图片文件头与扩展名一致性校验、带电草稿契约、请求资源上限、Qwen Storage 任务、模型降级链和限流门控；当前仓库已更新到 `f4d6298`，若要让站点采用这些改动，仍需在 Qoder Sites 重新发布并复验。
+- P4 尚未整体完成：服务端已有最小间隔、单 IP/全局每日额度门控和 429 错误映射，但当前默认使用进程内 MemoryQuotaStore，跨实例/重启的持久额度数据库、并发计数和匿名公开访问仍待完成；完成前不要公开开放。
 
 ## 下一步执行顺序
 
 ### P4：服务端保护
 
-1. 确认 `QODER_PAT` 只存在 Sites 服务端 Secret。
-2. 增加匿名访问策略、请求频率限制、并发限制和每日额度。
+1. 确认 `QWEN_API_KEY` 与（如启用回退）`QODER_PAT` 只存在 Sites 服务端 Secret。
+2. 保留并复验现有最小间隔、单 IP/全局每日额度门控；再补持久化额度数据库、并发限制和匿名访问策略。
 3. 统一服务端图片大小策略与客户端提示。
 4. 验证 429、超时、额度耗尽、服务失败和恢复流程。
 5. 检查 Analytics 和函数日志，确保不记录题面、图片、模型原文或凭据。
@@ -79,11 +84,11 @@ git diff --check                 通过
 
 ## Qoder Sites 操作提示
 
-1. 打开仓库并切换到提交 `9f0d796`。
-2. 确认服务端 Secret 中存在 `QODER_PAT`，不要放入 `.env` 或任何 `VITE_` 变量。
+1. 打开仓库并确认分支 `main` 已在提交 `f4d6298` 或其后。
+2. 在服务端 Secret 中配置 `QWEN_API_KEY` 以启用 Qwen；只有需要 Cloud Agents 回退时才配置 `QODER_PAT`。两者都不要放入 `.env` 或任何 `VITE_` 变量。
 3. 同时部署前端构建产物和 `functions/`，函数入口为 `functions/index.ts`。
-4. 先检查 `/functions/v1/app?name=Physics`，再测试文字题和图片题。
-5. 发布后重新执行健康检查、应用/撤销和错误流程验证。
+4. 先检查 `/functions/v1/app?name=Physics`，再测试文字题和图片题；确认 POST 返回 `202` 后，客户端会用 `GET /functions/v1/app/interpret?job=...` 续取。
+5. 发布后重新执行健康检查、应用/撤销、刷新续取和错误流程验证。
 
 ## 安全边界
 

@@ -40,7 +40,9 @@ export const inclineTemplate: Template = {
     if (blockers.length) return { ok: false, report: { blockers, pending }, flags: ['insufficient'] };
 
     const muK = contact?.mu_k ?? 0;
-    const L = supportLength(sup);
+    // 摩擦状态判断只依赖 θ、μs 和初速度；题面未给斜面长度时，
+    // 不应凭空使用 geometry.ts 的示意默认长度 4 m。
+    const L = sup.length === null ? Infinity : supportLength(sup);
     const dir = supportDir(sup);
     const aUp = -g * sin - muK * g * cos;
     const aDown = -g * sin + muK * g * cos;
