@@ -5,7 +5,7 @@ export type SpatialVector = Vec2 & { z?: number };
 export type Num = number | null;
 
 export type UnitKind = 'length' | 'time' | 'speed' | 'accel' | 'mass' | 'angle' | 'charge' | 'electric' | 'magnetic' | 'voltage'
-  | 'gravity_gradient' | 'electric_gradient' | 'magnetic_gradient' | 'none';
+  | 'gravity_gradient' | 'electric_gradient' | 'magnetic_gradient' | 'stiffness' | 'none';
 
 export type Body = {
   id: string;

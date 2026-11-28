@@ -40,7 +40,7 @@ export const fieldTemplate: Template = {
     const charge=charged ? b.charge : 0;
     const blockers=[];
     const fail=(p: string,note: string)=>issue('constraint_conflict',p,note);
-    for(const [name,v] of Object.entries({mass:b.mass,charge,'pos.x':b.pos.x,'pos.y':b.pos.y,'vel.x':b.vel.x,'vel.y':b.vel.y})) {
+    for(const [name,v] of Object.entries({charge,'pos.x':b.pos.x,'pos.y':b.pos.y,'vel.x':b.vel.x,'vel.y':b.vel.y})) {
       if(!finite(v)) blockers.push(issue('missing_required',path+'.'+name,'请填写有限数值。'));
     }
     if(charged&&charge===0) blockers.push(fail(path+'.charge','已勾选带电，请填写非零电荷量；中性小球可取消勾选。'));
@@ -70,13 +70,15 @@ export const fieldTemplate: Template = {
     }
     if(links.filter(l=>l.bodyId!==null).length>1) blockers.push(fail('links','一个小球仅支持一根定点绳或杆。'));
     if(link&&(!positive(link.length)||!validPoint(link.anchor))) blockers.push(fail('links.'+link.id,'绳杆需要有效锚点和正长度。'));
-    if(blockers.length) return { ok:false, report:{blockers,pending:[]},flags:['conflict'] };
-
     const fields=enabled.map(f=>f.kind==='uniform_electric'&&f.plates?{...f,vector:electricVector(f)!}:f);
-    const m=b.mass!, q=charge!, qm=q/m;
-    const s0: State=[b.pos.x!,b.pos.y!,b.vel.x!,b.vel.y!,0,0];
     const analyticGravity=fields.length>0 && fields.every(f=>f.kind==='uniform_gravity'&&!hasGradient(f)&&f.shape.kind==='global'&&f.vector.x===0)
       && fields.reduce((g,f)=>g+f.vector.y,0)<0;
+    const projectileCompatible=!link&&analyticGravity&&!scene.asks.some(a=>a.kind==='field_exit'||a.kind==='field_entry');
+    if(!finite(b.mass)&&!projectileCompatible) blockers.push(issue('missing_required',path+'.mass','请填写有限数值。'));
+    if(blockers.length) return { ok:false, report:{blockers,pending:[]},flags:['conflict'] };
+
+    const m=b.mass!, q=charge!, qm=q/m;
+    const s0: State=[b.pos.x!,b.pos.y!,b.vel.x!,b.vel.y!,0,0];
     // Use the existing closed-form projectile/ground solver when the chosen objects imply that model.
     if(!link&&analyticGravity&&s0[1]>=0&&!(s0[1]===0&&s0[3]<0)&&!scene.asks.some(a=>a.kind==='field_exit'||a.kind==='field_entry')) {
       const gravity=-fields.reduce((g,f)=>g+f.vector.y,0);

@@ -2,7 +2,7 @@
 
 export class DraftContractError extends Error {}
 
-export const UNIT_KINDS = ['length', 'time', 'speed', 'accel', 'mass', 'angle', 'charge', 'electric', 'magnetic', 'voltage', 'gravity_gradient', 'electric_gradient', 'magnetic_gradient', 'none'];
+export const UNIT_KINDS = ['length', 'time', 'speed', 'accel', 'mass', 'angle', 'charge', 'electric', 'magnetic', 'voltage', 'gravity_gradient', 'electric_gradient', 'magnetic_gradient', 'stiffness', 'none'];
 export const ASK_KINDS = ['at_time', 'at_height', 'at_position', 'at_velocity', 'landing', 'apex', 'rest', 'end_of_support', 'friction_state', 'energy_at', 'work_between', 'field_entry', 'field_exit', 'collision', 'motion_analysis', 'return_to_initial_x', 'custom'];
 const COLLECTIONS = ['bodies', 'supports', 'contacts', 'asks', 'params', 'fields', 'links', 'stages'];
 const EVENTS = ['initial','apex','landing','end_of_support','final_rest','field_exit','collision'];
@@ -92,7 +92,11 @@ function resolveField(scene: Record<string, unknown>, path: string): unknown {
 function validDraftPath(scene: Record<string, unknown>, path: string): boolean {
   if (resolveField(scene, path) !== undefined) return true;
   const parts = path.split('.');
-  return parts.length === 2 && parts[0] === 'asks' && ASK_KINDS.includes(parts[1]);
+  if (parts.length !== 2 || parts[0] !== 'asks' || !ASK_KINDS.includes(parts[1])) return false;
+  // `asks.<kind>` is a convenient alias, but only when that ask actually
+  // exists in the scene. Do not let an arbitrary supported kind look valid.
+  return Array.isArray(scene.asks)
+    && scene.asks.some((ask) => ask && typeof ask === 'object' && (ask as Record<string, unknown>).kind === parts[1]);
 }
 
 // Models sometimes prefix paths with the root name ("scene.bodies.A.mass");
@@ -341,7 +345,13 @@ function prunePlates(sceneValue: unknown): string[] {
 }
 
 /** Returns the validated draft so the caller can forward exactly what was checked. */
-export function validateSceneDraft(value: unknown): Record<string, unknown> {
+export type DraftValidationOptions = {
+  /** Reject unresolved evidence/unknown paths instead of pruning them. */
+  strictReferences?: boolean;
+};
+
+export function validateSceneDraft(value: unknown, options: DraftValidationOptions = {}): Record<string, unknown> {
+  const strictReferences = options.strictReferences === true;
   const v = asObject(value, 'draft');
   const source = asObject(v.source, 'draft.source');
   if (source.rawText !== undefined) asString(source.rawText, 'draft.source.rawText');
@@ -453,9 +463,11 @@ export function validateSceneDraft(value: unknown): Record<string, unknown> {
     if (row.basis !== undefined && row.basis !== null) asString(row.basis, `${path}.basis`);
     return row;
   });
-  // 已知/假设行是展示性溯源 metadata；路径无法定位时剔除并明示，物理量以 scene 为准。
+  // AI 服务使用严格引用模式，避免模型把无法定位的依据伪装成已知量。
+  // 历史本地草稿仍可使用兼容模式：剔除无效展示行并留下警告。
   const keepRow = (row: Record<string, unknown>, kind: string) => {
     if (validPath(row.path as string)) return true;
+    if (strictReferences) fail(`draft 路径不存在：${row.path}`);
     const warnings = Array.isArray(v.warnings) ? v.warnings : (v.warnings = []);
     warnings.push(`已忽略无法定位的${kind}条目：${row.path}（${row.label ?? ''} ${row.quote ?? ''}）。`);
     return false;
@@ -475,6 +487,7 @@ export function validateSceneDraft(value: unknown): Record<string, unknown> {
   // 待求问题已由 asks 逐字保留，这些冗余标记剔除并明示，不丢题面条件。
   const unknown = unknownAll.filter((row) => {
     if (validPath(row.path as string)) return true;
+    if (strictReferences) fail(`draft 路径不存在：${row.path}`);
     const warnings = Array.isArray(v.warnings) ? v.warnings : (v.warnings = []);
     warnings.push(`已忽略无法定位的待求标记：${row.path}（待求问题以 asks 为准）。`);
     return false;
@@ -487,6 +500,11 @@ export function validateSceneDraft(value: unknown): Record<string, unknown> {
     try { path = normalizeScenePath(entry); } catch { path = entry; }
     path = fixPath(path);
     if (validPath(path)) { uncertain.push(path); continue; }
+    // Keep prose uncertainty notes, but reject path-shaped references in the
+    // AI service so a misspelled field cannot silently pass as commentary.
+    if (strictReferences && /^(?:scene\.)?(?:bodies|supports|contacts|asks|params|fields|links|stages)\./.test(entry)) {
+      fail(`draft 路径不存在：${entry}`);
+    }
     // Prose uncertainty notes are preserved as warnings instead of rejecting the draft.
     const warnings = Array.isArray(v.warnings) ? v.warnings : (v.warnings = []);
     warnings.push(`模型不确定性说明（非路径，已转入警告）：${entry}`);

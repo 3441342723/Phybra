@@ -217,7 +217,8 @@ check('缺字段草稿被服务端拒绝', badFlow.draftResp?.status === 502 && 
 const badPath = structuredClone(VALID_DRAFT);
 badPath.known[0].path = 'supports.doesNotExist.length';
 const pathFlow = await flow(fakeClient(badPath), { text: '看图' });
-check('草稿路径不可解析时拒绝', pathFlow.draftResp?.status === 502 && pathFlow.draftJson?.error === 'ai_draft_invalid');
+check('AI 草稿溯源路径不可解析时拒绝', pathFlow.draftResp?.status === 502
+  && pathFlow.draftJson?.error === 'ai_draft_invalid');
 
 const prefixed = structuredClone(VALID_DRAFT);
 prefixed.scene.bindings = { 'scene.supports.s1.angleDeg': 'theta' };

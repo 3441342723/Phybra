@@ -36,20 +36,29 @@ export function validateScene(scene: Scene): CheckReport {
 
   if (scene.bodies.length === 0) push('missing_required', 'bodies', '场景为空：请添加一个物体，或使用 AI 建模');
   if (scene.bodies.length > 1 && !(scene.bodies.length === 2 && scene.bodies.every(b=>b.kind==='ball'))) push('unsupported_combo', 'bodies', '多物体目前支持两个小球的光滑碰撞。');
+  // A custom-only scene is intentionally preserved for an unsupported topic
+  // (for example a spring). Do not add unrelated gravity blockers that would
+  // make it look as if the user had supplied an invalid physical value.
+  const customOnlyQuery = scene.asks.length > 0 && scene.asks.every((ask) => ask.kind === 'custom');
   if (scene.bodies.some(b => b.kind !== 'ball')) {
-    if (scene.gravity === null) push('missing_required', 'gravity', '缺少重力加速度 g（可填 9.8 或 10）');
-    // 水平面内圆周运动可忽略重力（g=0）；其余非小球题型仍需正重力。
-    else if (scene.gravity < 0 || (scene.gravity === 0 && !scene.bodies.every(b => b.kind === 'circular'))) push('constraint_conflict', 'gravity', 'g 必须为正数');
+    if (!customOnlyQuery) {
+      if (scene.gravity === null) push('missing_required', 'gravity', '缺少重力加速度 g（可填 9.8 或 10）');
+      // 水平面内圆周运动可忽略重力（g=0）；其余非小球题型仍需正重力。
+      else if (scene.gravity < 0 || (scene.gravity === 0 && !scene.bodies.every(b => b.kind === 'circular'))) push('constraint_conflict', 'gravity', 'g 必须为正数');
+    }
     if (scene.fields?.some(f => f.enabled) || scene.links?.some(l => l.bodyId !== null)) {
       push('unsupported_combo', 'bodies', '独立场和定点绳杆请搭配小球。');
     }
   }
 
+  const frictionOnlyQuery = scene.asks.length > 0 && scene.asks.every((ask) => ask.kind === 'friction_state');
   for (const sup of scene.supports) {
     if (sup.angleDeg === null || !Number.isFinite(sup.angleDeg)) push('missing_required', `supports.${sup.id}.angleDeg`, '请填写倾角，水平面填 0°');
     else if (Math.abs(sup.angleDeg) >= 90) push('unsupported_combo', `supports.${sup.id}.angleDeg`, '首版不支持 |倾角| ≥ 90°');
-    if (sup.length === null) push('missing_required', `supports.${sup.id}.length`, '缺少支撑面长度');
-    else if (sup.length <= 0) push('constraint_conflict', `supports.${sup.id}.length`, '长度必须为正');
+    // 仅判断静摩擦是否足以自锁时不需要知道支撑面长度；
+    // 其他运动、端点和能量查询仍要求有限的支撑面长度。
+    if (sup.length === null && !frictionOnlyQuery && !customOnlyQuery) push('missing_required', `supports.${sup.id}.length`, '缺少支撑面长度');
+    else if (sup.length !== null && sup.length <= 0) push('constraint_conflict', `supports.${sup.id}.length`, '长度必须为正');
   }
 
   for (const body of scene.bodies) {

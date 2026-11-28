@@ -16,6 +16,7 @@ const MAX_IMAGE_BYTES = 600 * 1024;
 // the model. Start returns 202 immediately; the browser polls the result endpoint.
 const RESULT_READ_BUDGET_MS = 10000;
 const JOB_STALE_MS = 10 * 60 * 1000;
+const MAX_AGENT_TEXT_CHARS = 256 * 1024;
 const MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
 export class InterpretError extends Error {
@@ -180,7 +181,7 @@ export function extractDraft(text: string, source: Record<string, unknown>): Rec
     ? { ...parsed as Record<string, unknown>, source }
     : parsed;
   try {
-    return validateSceneDraft(candidate);
+    return validateSceneDraft(candidate, { strictReferences: true });
   } catch (error) {
     const reason = error instanceof DraftContractError ? error.message.slice(0, 160) : 'unknown';
     throw new InterpretError('ai_draft_invalid', 502, reason, draftDiagnostic('ai_draft_invalid', reason));
@@ -199,6 +200,7 @@ async function readEventTexts(
   typeCounts: Map<string, number>,
 ): Promise<{ texts: string[]; hasMore: boolean; original: Array<Record<string, unknown>> }> {
   const texts: string[] = [];
+  let totalTextChars = 0;
   let original: Array<Record<string, unknown>> = [];
   let page: string | undefined;
   let hasMore = false;
@@ -213,7 +215,11 @@ async function readEventTexts(
       }
       if (type !== 'agent.message') continue;
       const text = collectText(event.content);
-      if (text.length > 0) texts.push(text);
+      if (text.length > 0) {
+        totalTextChars += text.length;
+        if (totalTextChars > MAX_AGENT_TEXT_CHARS) throw new InterpretError('ai_draft_invalid', 502, 'agent response too large');
+        texts.push(text);
+      }
     }
     hasMore = result?.has_more === true;
     if (!hasMore || typeof result?.next_page !== 'string' || !result.next_page) break;
@@ -326,7 +332,7 @@ async function startJob(client: CloudClient, jobId: string, content: Array<Recor
       body: {
         agent: { type: 'agent', id: agent.id, version: agent.version },
         environment_id: environment.id,
-        title: `读题 ${info.text.slice(0, 40)}`,
+        title: '物理读题建模',
         metadata: { app: APP_SCOPE, purpose: PURPOSE, job: jobId, ...(info.imageName ? { imageName: info.imageName } : {}), ...(info.repairOf ? { repairOf: info.repairOf } : {}) },
       },
       idempotencyKey: `sites-session-${APP_SCOPE}-${jobId}`,

@@ -29,8 +29,8 @@ plates?:{axis:"x"|"y",voltage:number|null}|null,gradient?:{x:number|null,y:numbe
 
 Ask={id:string,kind:"at_time"|"at_height"|"at_position"|"at_velocity"|"landing"|"apex"|"rest"|"end_of_support"|"friction_state"|"energy_at"|"work_between"|"field_entry"|"field_exit"|"collision"|"motion_analysis"|"return_to_initial_x"|"custom",t:number|null,x:number|null,y:number|null,v:number|null,fieldId?:string|null,energyFrom?:EnergyPoint,energyTo?:EnergyPoint,question?:string}
 EnergyPoint={kind:"time",t:number|null}|{kind:"event",event:"initial"|"apex"|"landing"|"end_of_support"|"final_rest"|"field_exit"|"collision"}
-碰后速度用 collision；场中运动性质/半径/周期用 motion_analysis；匀强复合场中静电力与重力相消的圆周运动，第一次返回初始竖直线用 return_to_initial_x。此类 ask 的 y 为地面坐标（以地面为原点时填 0，无地面限制时 null），本地核对返回前是否碰地并输出离地高度。已有 field_entry/field_exit、能量和做功查询。不能遗漏题目任何一问；没有专用求解的原问题放 custom.question 并在 warnings 说明，不能假装已计算。所有 ask 的 t/x/y/v 字段仍要保留，不适用为 null。
-params.unit 可用 length,time,speed,accel,mass,angle,charge,electric,magnetic,voltage,gravity_gradient,electric_gradient,magnetic_gradient,none。
+碰后速度用 collision；场中运动性质/半径/周期用 motion_analysis；匀强复合场中静电力与重力相消的圆周运动，第一次返回初始竖直线用 return_to_initial_x。此类 ask 的 y 为地面坐标（以地面为原点时填 0，无地面限制时 null），本地核对返回前是否碰地并输出离地高度。已有 field_entry/field_exit、能量和做功查询。field_entry/field_exit 会输出进出场时间、世界坐标 x/y、场内位移 Δx/Δy、速度分量、速率和速度方向；题面询问这些量时只建立对应的 field_entry/field_exit ask，不要另建 custom ask 重复同一问题。不能遗漏题目任何一问；只有没有专用求解的原问题才放 custom.question 并在 warnings 说明，不能假装已计算。所有 ask 的 t/x/y/v 字段仍要保留，不适用为 null。
+params.unit 可用 length,time,speed,accel,mass,angle,charge,electric,magnetic,voltage,gravity_gradient,electric_gradient,magnetic_gradient,stiffness,none；stiffness 的 SI 单位为 N/m，仅用于保留弹簧劲度系数等不支持题目的量纲，不代表当前已支持弹簧求解。
 
 分阶段题：
 碰撞与支撑面、外场、绳杆目前不能作为一个场景同时模拟。应拆成 stages，每个 scene 使用支持的组合。主 scene 放第一阶段。
@@ -51,7 +51,7 @@ bindings 的键与所有非分阶段路径（known/assumed/unknown/uncertain）�
 
 建模和题意约束：
 1. 题图仅按标注和文字读数，禁止按比例猜倾角、长度、质量。辨认不清的量用 null 并列入 uncertain。
-2. 所有依据放 known.quote，坐标、忽略阻力等假设单列 assumed.basis。缺少动摩擦因数不能从静摩擦因数直接抄值；未给质量且与运动无关可保留 null，支持范围允许先求运动。
+2. 所有依据放 known.quote，坐标、忽略阻力等假设单列 assumed.basis。缺少动摩擦因数不能从静摩擦因数直接抄值；纯重力运动学且质量不影响所求时，未给质量保留 null，不列为待补条件，也不得阻塞运动求解；若所求能量/功、碰撞结果或带电轨迹确实依赖质量且题目未给出，则把对应 bodies.<id>.mass（分阶段使用完整 stages 路径）列入 unknown，不能猜数值。
 3. 区分题面矛盾与实现边界。mA<mB 且 A 正向弹性碰静止 B 时，A 会反弹。不能同时假设 A 碰后继续从右端 P 飞出。必须在 warnings 指出冲突，并保留原数值，除非用户明确要求修题。
 4. 复合场圆周必须满足电力与重力相消，并检查 qv×B 的方向。若轨迹向下且会撞地，不能忽略地面给出穿地返回结果。
 5. 不得自动补不存在的地面/反弹/反射过程。return_to_initial_x 仅针对圆周段且不模拟落地，若返回前可能碰地须明确指出，不能输出穿地返回的假象。其他没有专用查询的问法，保留 custom.question 并说明适用条件，不能遗漏待求。

@@ -41,17 +41,24 @@ export const spatialTemplate: Template = {
     const b = scene.bodies[0], path = 'bodies.'+b?.id;
     if (!b) return {ok:false,report:{blockers,pending:[]},flags:['out_of_scope']};
     const q = isCharged(b) ? b.charge : 0;
-    for (const [name,v] of Object.entries({mass:b.mass,charge:q,'pos.x':b.pos.x,'pos.y':b.pos.y,'pos.z':optional(b.pos.z),'vel.x':b.vel.x,'vel.y':b.vel.y,'vel.z':optional(b.vel.z)})) {
+    for (const [name,v] of Object.entries({charge:q,'pos.x':b.pos.x,'pos.y':b.pos.y,'pos.z':optional(b.pos.z),'vel.x':b.vel.x,'vel.y':b.vel.y,'vel.z':optional(b.vel.z)})) {
       if (!finite(v)) blockers.push(issue('missing_required',path+'.'+name,'请填写有限数值，未知量不能默认为 0。'));
     }
     if (finite(b.mass) && b.mass <= 0) blockers.push(fail(path+'.mass','质量必须为正。'));
     if (isCharged(b) && q === 0) blockers.push(fail(path+'.charge','带电小球需要非零电荷量；中性小球请取消带电。'));
+    // 纯重力运动的轨迹与质量无关；使用单位质量继续求运动学量，
+    // 但能量/功仍会明确提示需要真实质量。
+    const massKnown = finite(b.mass) && b.mass > 0;
+    const kinematicsOnly = !massKnown && q === 0
+      && fields.every((f) => f.kind === 'uniform_gravity' || f.kind === 'point_mass');
+    if (!massKnown && !kinematicsOnly) blockers.push(issue('missing_required',path+'.mass','请填写有限数值，未知量不能默认为 0。'));
     const settings = {...DEFAULT_FIELD_PLAYBACK,...scene.fieldPlayback};
     if (!finite(settings.duration) || settings.duration <= 0) blockers.push(fail('fieldPlayback.duration','演示 / 数值求解时长必须为正。'));
     if (settings.exit !== 'continue') blockers.push(issue('unsupported_combo','fieldPlayback.exit','三维全局场请使用按时长演示；有限场区进出查询请在二维中使用。'));
     if (blockers.length) return {ok:false,report:{blockers,pending:[]},flags:['out_of_scope']};
 
-    const m = b.mass!, charge = q!;
+    const m = massKnown ? b.mass! : 1;
+    const charge = q!;
     const initial: SpatialState = [b.pos.x!,b.pos.y!,optional(b.pos.z)!,b.vel.x!,b.vel.y!,optional(b.vel.z)!,0,0];
     const force = spatialForces(fields,initial), initialA = spatialAcceleration(initial,force,charge/m);
     const variable = fields.some(f=>(isPointSource(f)||hasGradient(f)) && (f.kind==='point_mass'||f.kind==='uniform_gravity'||charge!==0));
@@ -123,6 +130,7 @@ export const spatialTemplate: Template = {
     const count=Math.min(1600,Math.max(400,Math.ceil(omega*tEnd*20)));
     const samples=tEnd===0?[evalAt(0)]:Array.from({length:count+1},(_,i)=>evalAt(i*tEnd/count));
     const energyAt=(time:number)=>{
+      if(!massKnown)return null;
       if(!available(time))return null;
       const u=stateAt(time),p=position3(u);
       const kinetic=.5*m*dot3(velocity3(u),velocity3(u));
@@ -142,18 +150,20 @@ export const spatialTemplate: Template = {
       return {t:time,kinetic,potential,mechanical:kinetic+potential,dissipated:0};
     };
     const energySamples=samples.map(s=>energyAt(s.t));
-    if(energySamples.some(s=>s===null)||samples.some(s=>![s.x,s.y,s.z,s.vx,s.vy,s.vz,s.ax,s.ay,s.az].every(finite)))return {ok:false,report:{blockers:[fail(path,'运动或能量超出可计算范围，请调整参数。')],pending:[]},flags:['conflict']};
-    const energy:Extract<EnergyAnalysis,{status:'ready'}>={
-      status:'ready',samples:energySamples.filter((s):s is NonNullable<typeof s>=>s!==null),evalAt:energyAt,
-      workBetween(from,to){
-        if(to<from)return null;
-        const a=energyAt(from),b=energyAt(to);
-        if(!a||!b)return null;
-        const ua=stateAt(from),ub=stateAt(to),gravity=ub[6]-ua[6],electric=ub[7]-ua[7],kineticChange=b.kinetic-a.kinetic;
-        return {gravity,electric,magnetic:0,friction:0,net:gravity+electric,dissipated:0,kineticChange,mechanicalChange:b.mechanical-a.mechanical,
-          balance:Math.abs(gravity+electric-kineticChange)<=1e-6*Math.max(1,Math.abs(kineticChange),a.kinetic,b.kinetic)?'verified':'mismatch'};
-      },
-    };
+    if((massKnown&&energySamples.some(s=>s===null))||samples.some(s=>![s.x,s.y,s.z,s.vx,s.vy,s.vz,s.ax,s.ay,s.az].every(finite)))return {ok:false,report:{blockers:[fail(path,'运动或能量超出可计算范围，请调整参数。')],pending:[]},flags:['conflict']};
+    const energy: EnergyAnalysis = !massKnown
+      ? { status:'mass_required', note:'请在物体属性中填写大于 0 的质量，才能计算以焦耳表示的能量和功。' }
+      : {
+        status:'ready',samples:energySamples.filter((s):s is NonNullable<typeof s>=>s!==null),evalAt:energyAt,
+        workBetween(from,to){
+          if(to<from)return null;
+          const a=energyAt(from),b=energyAt(to);
+          if(!a||!b)return null;
+          const ua=stateAt(from),ub=stateAt(to),gravity=ub[6]-ua[6],electric=ub[7]-ua[7],kineticChange=b.kinetic-a.kinetic;
+          return {gravity,electric,magnetic:0,friction:0,net:gravity+electric,dissipated:0,kineticChange,mechanicalChange:b.mechanical-a.mechanical,
+            balance:Math.abs(gravity+electric-kineticChange)<=1e-6*Math.max(1,Math.abs(kineticChange),a.kinetic,b.kinetic)?'verified':'mismatch'};
+        },
+      };
     const answers:Answer[]=[];
     const out=(id:string,label:string,value:number|null,unit:string,note?:string)=>answers.push({id,label,value,unit,note});
     const resolve=(p?:EnergyPoint)=>p?.kind==='time'?p.t:p?.kind==='event'?(p.event==='initial'||p.event==='final_rest'&&stationary?0:events.find(e=>e.kind===p.event)?.t??null):null;
@@ -173,10 +183,12 @@ export const spatialTemplate: Template = {
         for(const key of ['x','y','z','vx','vy','vz','ax','ay','az'] as const)out(ask.id+'.'+key,'t='+fmt(ask.t)+' s · '+key,s[key],key.startsWith('a')?'m/s²':key.startsWith('v')?'m/s':'m');
         out(ask.id+'.speed','空间速率',Math.hypot(s.vx,s.vy,s.vz),'m/s');
       } else if(ask.kind==='energy_at') {
+        if(energy.status!=='ready'){out(ask.id,'能量',null,'J',energy.note);continue;}
         const time=resolve(ask.energyFrom),e=time===null?null:energyAt(time);
         if(e){out(ask.id+'.kinetic','动能',e.kinetic,'J');out(ask.id+'.potential','势能',e.potential,'J');out(ask.id+'.mechanical','机械能',e.mechanical,'J');}
         else out(ask.id,'能量',null,'J','指定时刻或事件不可用。');
       } else if(ask.kind==='work_between') {
+        if(energy.status!=='ready'){out(ask.id,'区间做功',null,'J',energy.note);continue;}
         const from=resolve(ask.energyFrom),to=resolve(ask.energyTo),w=from===null||to===null?null:energy.workBetween(from,to);
         if(w){out(ask.id+'.gravity','重力功',w.gravity,'J');out(ask.id+'.electric','电场功',w.electric??0,'J');out(ask.id+'.magnetic','磁场功',0,'J');out(ask.id+'.net','合功',w.net,'J');}
         else out(ask.id,'区间做功',null,'J','请选择有效且顺序正确的时刻或事件。');

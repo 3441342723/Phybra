@@ -28,6 +28,32 @@ describe('独立物体与叠加场',()=>{
     expect(isScene(projectileExample())).toBe(true);
   });
 
+  it('纯全局竖直重力场中的自由落体无需质量即可求运动学量',()=>{
+    const sc=ballThrowExample();
+    sc.bodies[0].pos={x:0,y:45};
+    sc.bodies[0].vel={x:0,y:0};
+    sc.bodies[0].mass=null;
+    sc.fields![0].vector={x:0,y:-10};
+    sc.asks=[makeAsk('landing')];
+
+    const sol=ok(solve(sc));
+    expect(sol.template).toBe('projectile');
+    expect(answer(sol,'land_t').value).toBeCloseTo(3);
+    expect(answer(sol,'land_v').value).toBeCloseTo(30);
+    expect(sol.energy?.status).toBe('mass_required');
+  });
+
+  it('存在电磁作用时质量仍是必需量',()=>{
+    const electric={...makeField('uniform_electric',{x:0,y:0},global),vector:{x:0,y:10}};
+    const sc=scene([electric]);
+    sc.bodies[0].mass=null;
+    sc.bodies[0].charged=true;
+    sc.bodies[0].charge=1;
+    const result=solve(sc);
+    expect(result.ok).toBe(false);
+    if(!result.ok) expect(result.report.blockers.some(b=>b.path===`bodies.${sc.bodies[0].id}.mass`)).toBe(true);
+  });
+
   it('电场和重力矢量叠加，可抵消或共同做功',()=>{
     const g={...makeField('uniform_gravity',{x:0,y:0},global),vector:{x:0,y:-2}};
     const e={...makeField('uniform_electric',{x:0,y:0},global),vector:{x:2,y:2}};

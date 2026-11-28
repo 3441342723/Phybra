@@ -103,6 +103,22 @@ describe('单物体斜面与摩擦', () => {
     expect(answer(sol, 'friction').text).toContain('静止');
   });
 
+  it('仅判断摩擦状态时不需要支撑面长度', () => {
+    const sc = incline({ mu_s: 0.6, mu_k: null, u: 0, asks: [makeAsk('friction_state')] });
+    sc.supports[0].length = null;
+    const sol = ok(solve(sc));
+    expect(answer(sol, 'friction').text).toContain('静止');
+    expect(answer(sol, 'end_t').value).toBeNull();
+  });
+
+  it('请求端点或运动状态时仍要求支撑面长度', () => {
+    const sc = incline({ mu_s: 0.6, mu_k: null, u: 0 });
+    sc.supports[0].length = null;
+    const result = solve(sc);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.report.blockers.some((b) => b.path === `supports.${sc.supports[0].id}.length`)).toBe(true);
+  });
+
   it('矛盾条件：物体初始位置超出斜面', () => {
     const r = solve(incline({ mu_s: 0.4, mu_k: 0.3, s0: 99, length: 5 }));
     expect(r.ok).toBe(false);
